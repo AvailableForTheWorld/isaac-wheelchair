@@ -1,37 +1,29 @@
-# Wheelchair
+# Wheelchair Timeline
 
-Wheelchair adds a branchable checkpoint tree plus a deliberately separate quick rewind to The Binding of Isaac: Repentance+.
+Wheelchair is now an in-game, linear safety timeline for The Binding of Isaac: Repentance+.
 
-1. **Exact branchable checkpoints:** keep the companion running and press **RT** or global **F6**. Wheelchair closes Isaac normally, waits for cached run state to flush, creates an immutable SHA-256-checked node, and relaunches the game. Restoring an older node preserves the old future and makes the next checkpoint a child on a new branch.
-2. **Controller tree:** press the center-right **Start/Menu** button (called Shift/Turbo/Menu on some controllers) or global **F7** to show the tree over the game. Use **X/Y/A/B** for left/up/down/right, **RT** to restore the highlighted node, and the center-left **Back/View** button to hide the tree.
-3. **Quick rewind:** press **F5** in a run for Isaac's built-in one-room rewind. It cannot go back multiple rooms; use exact nodes for that.
+There is no companion window, global hotkey, controller panel, process-closing automation, save-file overwrite, relaunch, node tree, or branching logic.
 
-## Installed paths
+## Controls
 
-- Project: `C:\software\program\project\others\mod\issac\wheelchair`
-- Game mod: `C:\Program Files (x86)\Steam\steamapps\common\The Binding of Isaac Rebirth\mods\wheelchair`
-- Save input: detected automatically below Steam's `userdata` directory; no account identifier is stored in the repository
-- Checkpoint store: `data\nodes` under this project (kept outside Steam Cloud)
+- **F5** on the keyboard: move backward one cached state.
+- **RT** on the controller: move backward one cached state.
 
-## First run
+The mod records a small player-focused state approximately once per second and keeps at most 100 states. Rewinding repeatedly within three seconds continues farther backward. After normal play resumes, newer history is discarded and the linear timeline continues from the restored state.
 
-1. Run `Install-Mod.ps1` once (already done by the initial setup).
-2. Start `Start-Wheelchair.cmd`.
-3. Enable **Wheelchair Quick Rewind** in Isaac's Mods menu.
-4. Strongly consider disabling Steam Cloud for Isaac. Cloud synchronization can replace locally restored files.
+The cache is held only in memory. It resets on a new run, game restart, or floor change and never writes Isaac's Steam save files.
 
-Wheelchair automatically finds the Isaac save directory when only one local Steam account matches. If several local accounts have matching saves, set `saveDirectory` in your local `config.json` and do not commit that private override.
+## What a cached state contains
 
-## Safe checkpoint workflow
+- Current-floor room index.
+- Player position and velocity reset.
+- Red-heart containers, red hearts, soul/black-heart quantity, bone-heart containers, eternal hearts, and golden hearts.
+- Coins, keys, bombs, and the primary active-item charge.
 
-1. Keep `Start-Wheelchair.cmd` running while playing.
-2. Press **RT** or **F6** to create a node. The close/snapshot/relaunch cycle is automatic because live file replacement is unsafe.
-3. Press the center-right **Start/Menu** button or **F7** to open the tree.
-4. Navigate with **X/Y/A/B** and press **RT** on any node to restore it.
-5. Wheelchair creates an automatic safety node, restores through verified temporary files, starts a new branch at the selected node, and relaunches Isaac.
+For the immediately previous room, Wheelchair uses Isaac's built-in Glowing Hourglass-style rewind so the room is restored by the engine. For older points on the same floor, the standard API can safely return to the cached room and restore the player-focused values above, but it cannot perfectly serialize every enemy, pickup, grid change, mod entity, item-pool decision, or hidden engine value. Cross-floor deep rewind is intentionally refused for stability.
 
-Do not manually overwrite these files while Isaac is running. `rep+gamestate1.dat` is the current resumable run; `persistentgamedata` files primarily contain profile/unlock progress. The project treats them as opaque binary files and never edits their contents.
+## Installation
 
-## Test
+Run `Install-Mod.ps1`, then enable **Wheelchair 100-State Timeline** in Isaac's Mods menu. The updated mod has already been installed on the development machine.
 
-Run: `powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Core.Tests.ps1`
+The old external checkpoint files under the ignored local `data` directory are preserved as recovery backups, but no current Wheelchair code reads or writes them.
