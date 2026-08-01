@@ -11,9 +11,13 @@ try {
     'two' | Set-Content -LiteralPath (Join-Path $sandbox 'save\a.dat')
     $n2 = New-WheelchairNode $sandbox 'second'
     if ($n2.parentId -ne $n1.id) { throw 'Parent link failed' }
-    Restore-WheelchairNode $sandbox $n1.id -SkipSafetyBackup | Out-Null
+    $restored = Restore-WheelchairNode $sandbox $n1.id -SkipSafetyBackup
     if ((Get-Content -LiteralPath (Join-Path $sandbox 'save\a.dat')) -ne 'one') { throw 'Restore failed' }
-    Write-Host 'PASS: snapshot, parent link, hash verification, restore, and branch HEAD'
+    'three' | Set-Content -LiteralPath (Join-Path $sandbox 'save\a.dat')
+    $branchNode = New-WheelchairNode $sandbox 'branched child'
+    if ($branchNode.parentId -ne $n1.id) { throw 'Restored HEAD did not create a child of the selected node' }
+    if ($branchNode.branch -notlike 'branch-*') { throw 'Restored HEAD did not continue on a new branch' }
+    Write-Host 'PASS: snapshot, parent link, hash verification, restore, and branch-tree continuation'
 } finally {
     if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }
 }
