@@ -6,7 +6,8 @@ local MAX_STATES = 100
 local timeline = {}
 local liveSnapshot = nil -- refreshed in place; committed only when leaving a room
 local pendingTarget = nil
-local pendingRestoreFrames = 0
+local pendingTimeoutFrames = 0
+local pendingSettleFrames = 0
 local inputCooldown = 0
 local lastStage = nil
 local lastStageType = nil
@@ -94,7 +95,8 @@ local function applyTarget(target)
         restorePlayer(Isaac.GetPlayer(index), target.players[index + 1])
     end
     pendingTarget = nil
-    pendingRestoreFrames = 0
+    pendingTimeoutFrames = 0
+    pendingSettleFrames = 0
     liveSnapshot = target
     Isaac.DebugString("[Wheelchair] restored room " .. target.roomIndex .. "; older=" .. #timeline)
     showMessage("Returned to previous room (" .. #timeline .. " older cached)", 75)
@@ -119,7 +121,10 @@ local function requestRewind()
     end
 
     pendingTarget = target
-    pendingRestoreFrames = 3
+    -- ChangeRoom is asynchronous in Repentance+. The old three-frame check
+    -- rejected valid transitions before the engine completed them.
+    pendingTimeoutFrames = 180
+    pendingSettleFrames = 0
     inputCooldown = 12
     Isaac.DebugString("[Wheelchair] requesting room " .. target.roomIndex .. "; older=" .. #timeline)
 
@@ -148,7 +153,8 @@ function Wheelchair:OnGameStarted()
     timeline = {}
     liveSnapshot = nil
     pendingTarget = nil
-    pendingRestoreFrames = 0
+    pendingTimeoutFrames = 0
+    pendingSettleFrames = 0
     local level = game:GetLevel()
     lastStage = level:GetStage()
     lastStageType = level:GetStageType()
@@ -157,7 +163,8 @@ end
 
 function Wheelchair:OnNewRoom()
     if pendingTarget ~= nil then
-        pendingRestoreFrames = 3
+        -- The target index is now active; allow a few frames for player entities.
+        pendingSettleFrames = 3
         return
     end
 
@@ -181,15 +188,21 @@ function Wheelchair:OnUpdate()
     if inputCooldown > 0 then inputCooldown = inputCooldown - 1 end
 
     if pendingTarget ~= nil then
-        if pendingRestoreFrames > 0 then
-            pendingRestoreFrames = pendingRestoreFrames - 1
-        else
-            local level = game:GetLevel()
-            if level:GetCurrentRoomIndex() == pendingTarget.roomIndex then
-                applyTarget(pendingTarget)
+        local level = game:GetLevel()
+        local currentRoom = level:GetCurrentRoomIndex()
+        if currentRoom == pendingTarget.roomIndex then
+            if pendingSettleFrames > 0 then
+                pendingSettleFrames = pendingSettleFrames - 1
             else
+                applyTarget(pendingTarget)
+            end
+        else
+            pendingTimeoutFrames = pendingTimeoutFrames - 1
+            if pendingTimeoutFrames <= 0 then
+                Isaac.DebugString("[Wheelchair] timeout waiting for room " .. pendingTarget.roomIndex .. "; current=" .. currentRoom)
                 pushRoomState(pendingTarget)
                 pendingTarget = nil
+                pendingSettleFrames = 0
                 showMessage("Room restore was refused by the game", 120)
             end
         end

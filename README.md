@@ -26,6 +26,8 @@ Wheelchair deliberately does not call Isaac's built-in Glowing Hourglass-style `
 
 Every step now uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values. This makes repeated room-by-room steps reliable, but it cannot perfectly serialize every enemy, pickup, grid change, mod entity, item-pool decision, or hidden engine value. Cross-floor rewind remains intentionally disabled for stability.
 
+`ChangeRoom` completes asynchronously in Repentance+. Wheelchair waits up to six seconds for the requested room and restores the cached values immediately after the new-room callback confirms the transition; it does not reject a valid transition after an arbitrary short delay.
+
 ## Installation
 
 Run `Install-Mod.ps1`, then enable **Wheelchair 100-State Timeline** in Isaac's Mods menu. The updated mod has already been installed on the development machine.
