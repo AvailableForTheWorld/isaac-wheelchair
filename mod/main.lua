@@ -3,6 +3,8 @@ local game = Game()
 
 local MAX_STATES = 100
 local SAFE_POSITION_MARGIN = 80
+local INVENTORY_SCAN_INTERVAL = 30
+local PEDESTAL_CAPTURE_DELAY = 3
 
 local timeline = {}
 local liveSnapshot = nil -- refreshed in place; committed only when leaving a room
@@ -16,13 +18,159 @@ local lastStage = nil
 local lastStageType = nil
 local message = ""
 local messageUntil = 0
+local inventoryCache = {}
+local roomEntryPedestals = {}
+local pendingPedestalRestores = {}
+local pendingSourcePedestalKey = nil
+local pendingSourcePedestals = nil
+local pedestalCaptureFrames = 0
+local pedestalCaptureListIndex = nil
 
 local function showMessage(text, duration)
     message = text
     messageUntil = game:GetFrameCount() + (duration or 90)
 end
 
-local function snapshotPlayer(player)
+local function copyCounts(source)
+    local result = {}
+    for id, count in pairs(source or {}) do result[id] = count end
+    return result
+end
+
+local function scanPassiveCollectibles(player)
+    local counts = {}
+    local itemConfig = Isaac.GetItemConfig()
+    local collectibles = itemConfig:GetCollectibles()
+    for id = 1, collectibles.Size - 1 do
+        local config = itemConfig:GetCollectible(id)
+        if config ~= nil and config.Type ~= ItemType.ITEM_ACTIVE then
+            local count = player:GetCollectibleNum(id, true)
+            if count > 0 then counts[id] = count end
+        end
+    end
+    return counts
+end
+
+local function snapshotPassiveCollectibles(player, playerIndex)
+    local frame = game:GetFrameCount()
+    local total = player:GetCollectibleCount()
+    local cached = inventoryCache[playerIndex]
+    if cached == nil or cached.total ~= total or frame - cached.frame >= INVENTORY_SCAN_INTERVAL then
+        cached = {
+            frame = frame,
+            total = total,
+            counts = scanPassiveCollectibles(player)
+        }
+        inventoryCache[playerIndex] = cached
+    end
+    return copyCounts(cached.counts)
+end
+
+local function roomKey(descriptor)
+    return tostring(descriptor.ListIndex)
+end
+
+local function snapshotCollectiblePedestals()
+    local pedestals = {}
+    for _, entity in ipairs(Isaac.GetRoomEntities()) do
+        local pickup = entity:ToPickup()
+        if pickup ~= nil
+            and pickup.Variant == PickupVariant.PICKUP_COLLECTIBLE
+            and pickup.SubType > 0 then
+            pedestals[#pedestals + 1] = {
+                subtype = pickup.SubType,
+                x = pickup.Position.X,
+                y = pickup.Position.Y,
+                seed = pickup.InitSeed,
+                price = pickup.Price,
+                shopItemId = pickup.ShopItemId,
+                optionsPickupIndex = pickup.OptionsPickupIndex,
+                touched = pickup.Touched,
+                charge = pickup.Charge,
+                autoUpdatePrice = pickup.AutoUpdatePrice,
+                timeout = pickup.Timeout
+            }
+        end
+    end
+    return pedestals
+end
+
+local function captureRoomEntryPedestals()
+    local descriptor = game:GetLevel():GetCurrentRoomDesc()
+    if pedestalCaptureListIndex ~= descriptor.ListIndex then return end
+    local key = roomKey(descriptor)
+    roomEntryPedestals[key] = snapshotCollectiblePedestals()
+    Isaac.DebugString("[Wheelchair] cached " .. #roomEntryPedestals[key] .. " entry pedestal(s) for room list=" .. descriptor.ListIndex)
+end
+
+local function schedulePedestalCapture()
+    local descriptor = game:GetLevel():GetCurrentRoomDesc()
+    pedestalCaptureFrames = PEDESTAL_CAPTURE_DELAY
+    pedestalCaptureListIndex = descriptor.ListIndex
+end
+
+local function spawnPedestal(saved, fallbackSeed)
+    local seed = saved.seed or 0
+    if seed == 0 then seed = fallbackSeed end
+    if seed == 0 then seed = 1 end
+
+    local entity = game:Spawn(
+        EntityType.ENTITY_PICKUP,
+        PickupVariant.PICKUP_COLLECTIBLE,
+        Vector(saved.x, saved.y),
+        Vector.Zero,
+        nil,
+        saved.subtype,
+        seed
+    )
+    local pickup = entity:ToPickup()
+    if pickup == nil then return end
+
+    -- Force the recorded item after spawning so player modifiers (including
+    -- rotating-choice effects) cannot substitute a different collectible.
+    pcall(
+        pickup.Morph,
+        pickup,
+        EntityType.ENTITY_PICKUP,
+        PickupVariant.PICKUP_COLLECTIBLE,
+        saved.subtype,
+        true,
+        true,
+        true
+    )
+    pickup.Price = saved.price or 0
+    pickup.ShopItemId = saved.shopItemId or -1
+    pickup.OptionsPickupIndex = saved.optionsPickupIndex or 0
+    pickup.Touched = saved.touched or false
+    pickup.Charge = saved.charge or 0
+    if saved.autoUpdatePrice ~= nil then pickup.AutoUpdatePrice = saved.autoUpdatePrice end
+    pickup.Timeout = saved.timeout or -1
+    pickup.Wait = 20
+end
+
+local function applyPendingPedestalRestore()
+    local descriptor = game:GetLevel():GetCurrentRoomDesc()
+    local key = roomKey(descriptor)
+    local savedPedestals = pendingPedestalRestores[key]
+    if savedPedestals == nil then return false end
+
+    for _, entity in ipairs(Isaac.GetRoomEntities()) do
+        local pickup = entity:ToPickup()
+        if pickup ~= nil and pickup.Variant == PickupVariant.PICKUP_COLLECTIBLE then
+            pickup:Remove()
+        end
+    end
+
+    local fallbackSeed = math.abs((game:GetSeeds():GetStartSeed() + descriptor.ListIndex) % 2147483646) + 1
+    for index, saved in ipairs(savedPedestals) do
+        spawnPedestal(saved, fallbackSeed + index)
+    end
+    pendingPedestalRestores[key] = nil
+    Isaac.DebugString("[Wheelchair] restored " .. #savedPedestals .. " collectible pedestal(s) in room list=" .. descriptor.ListIndex)
+    return true
+end
+
+local function snapshotPlayer(player, playerIndex)
     local activeItems = {}
     for slot = 0, 3 do
         activeItems[slot + 1] = {
@@ -53,7 +201,8 @@ local function snapshotPlayer(player)
         soulCharge = player:GetSoulCharge(),
         bloodCharge = player:GetBloodCharge(),
         poopMana = player:GetPoopMana(),
-        activeItems = activeItems
+        activeItems = activeItems,
+        passiveCollectibles = snapshotPassiveCollectibles(player, playerIndex)
     }
 end
 
@@ -73,7 +222,7 @@ local function snapshotCurrentState()
     local descriptor = level:GetCurrentRoomDesc()
     local players = {}
     for index = 0, game:GetNumPlayers() - 1 do
-        players[index + 1] = snapshotPlayer(Isaac.GetPlayer(index))
+        players[index + 1] = snapshotPlayer(Isaac.GetPlayer(index), index + 1)
     end
 
     return {
@@ -116,12 +265,36 @@ local function getSafeRestoredPosition(saved)
     return room:GetClampedPosition(position, SAFE_POSITION_MARGIN)
 end
 
-local function restoreMatchingActiveCharges(player, savedItems)
+local function restorePassiveCollectibles(player, savedCounts)
+    local currentCounts = scanPassiveCollectibles(player)
+    for id, currentCount in pairs(currentCounts) do
+        local savedCount = savedCounts[id] or 0
+        for _ = savedCount + 1, currentCount do
+            pcall(player.RemoveCollectible, player, id, true, ActiveSlot.SLOT_PRIMARY, true)
+        end
+    end
+    for id, savedCount in pairs(savedCounts) do
+        local currentCount = currentCounts[id] or 0
+        for _ = currentCount + 1, savedCount do
+            -- FirstTimePickingUp=false avoids replaying pickup rewards.
+            pcall(player.AddCollectible, player, id, 0, false, ActiveSlot.SLOT_PRIMARY, 0)
+        end
+    end
+end
+
+local function restoreActiveItems(player, savedItems)
     for slot = 0, 3 do
         local saved = savedItems[slot + 1]
-        -- Never replace or remove equipment. A historical charge is safe only
-        -- when the exact same active item is still equipped in this slot.
-        if saved ~= nil and player:GetActiveItem(slot) == saved.item then
+        if saved ~= nil then
+            local currentItem = player:GetActiveItem(slot)
+            if currentItem ~= saved.item then
+                if currentItem ~= 0 then
+                    pcall(player.RemoveCollectible, player, currentItem, true, slot, true)
+                end
+                if saved.item ~= 0 then
+                    pcall(player.AddCollectible, player, saved.item, saved.charge or 0, false, slot, 0)
+                end
+            end
             pcall(player.SetActiveCharge, player, saved.charge or 0, slot)
         end
     end
@@ -158,10 +331,15 @@ local function restoreSoulAndBlackHearts(player, saved)
     end
 end
 
-local function restorePlayer(player, saved, restorePosition)
+local function restorePlayer(player, saved, restoreInventory, restorePosition)
     if player:GetPlayerType() ~= saved.playerType then return end
 
-    restoreMatchingActiveCharges(player, saved.activeItems or {})
+    if restoreInventory then
+        restorePassiveCollectibles(player, saved.passiveCollectibles or {})
+        restoreActiveItems(player, saved.activeItems or {})
+        pcall(player.AddCacheFlags, player, CacheFlag.CACHE_ALL)
+        pcall(player.EvaluateItems, player)
+    end
 
     safeAdd(player.AddBrokenHearts, player, (saved.brokenHearts or 0) - player:GetBrokenHearts())
     safeAdd(player.AddMaxHearts, player, saved.maxHearts - player:GetMaxHearts(), true)
@@ -197,8 +375,15 @@ end
 
 local function applyTarget(target)
     for index = 0, math.min(game:GetNumPlayers(), #target.players) - 1 do
-        restorePlayer(Isaac.GetPlayer(index), target.players[index + 1], true)
+        restorePlayer(Isaac.GetPlayer(index), target.players[index + 1], true, true)
+        inventoryCache[index + 1] = nil
     end
+    if pendingSourcePedestalKey ~= nil and pendingSourcePedestals ~= nil then
+        pendingPedestalRestores[pendingSourcePedestalKey] = pendingSourcePedestals
+        Isaac.DebugString("[Wheelchair] committed " .. #pendingSourcePedestals .. " pedestal(s) for a future room re-entry")
+    end
+    pendingSourcePedestalKey = nil
+    pendingSourcePedestals = nil
     pendingTarget = nil
     pendingTimeoutFrames = 0
     pendingSettleFrames = 0
@@ -245,12 +430,24 @@ local function requestRewind()
     pendingSettleFrames = 0
     verificationTarget = nil
     verificationFrames = 0
+    inventoryCache = {}
     inputCooldown = 12
     Isaac.DebugString("[Wheelchair] requesting room grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension .. "; older=" .. #timeline)
 
     if target.listIndex == level:GetCurrentRoomDesc().ListIndex then
         applyTarget(target)
     else
+        local currentDescriptor = level:GetCurrentRoomDesc()
+        local currentKey = roomKey(currentDescriptor)
+        local entryPedestals = roomEntryPedestals[currentKey]
+        if entryPedestals ~= nil then
+            pendingSourcePedestalKey = currentKey
+            pendingSourcePedestals = entryPedestals
+            Isaac.DebugString("[Wheelchair] queued " .. #entryPedestals .. " pedestal(s) for room list=" .. currentDescriptor.ListIndex)
+        else
+            Isaac.DebugString("[Wheelchair] no entry pedestal snapshot for room list=" .. currentDescriptor.ListIndex)
+        end
+
         -- Never call the built-in rewind here. Glowing Hourglass owns only one
         -- engine backup and loading it can roll the Lua mod state backward too.
         -- ChangeRoom keeps this mod-owned history alive for repeated steps.
@@ -283,9 +480,17 @@ function Wheelchair:OnGameStarted()
     pendingSettleFrames = 0
     verificationTarget = nil
     verificationFrames = 0
+    inventoryCache = {}
+    roomEntryPedestals = {}
+    pendingPedestalRestores = {}
+    pendingSourcePedestalKey = nil
+    pendingSourcePedestals = nil
+    pedestalCaptureFrames = 0
+    pedestalCaptureListIndex = nil
     local level = game:GetLevel()
     lastStage = level:GetStage()
     lastStageType = level:GetStageType()
+    schedulePedestalCapture()
     showMessage("Room timeline ready: F5 or RT goes back one room", 120)
 end
 
@@ -301,6 +506,9 @@ function Wheelchair:OnNewRoom()
     local stageType = level:GetStageType()
     if lastStage ~= nil and (stage ~= lastStage or stageType ~= lastStageType) then
         timeline = {}
+        inventoryCache = {}
+        roomEntryPedestals = {}
+        pendingPedestalRestores = {}
         showMessage("New floor: timeline cache reset", 90)
     elseif liveSnapshot ~= nil then
         -- liveSnapshot was refreshed during the final update in the room we just
@@ -310,6 +518,8 @@ function Wheelchair:OnNewRoom()
     lastStage = stage
     lastStageType = stageType
     liveSnapshot = nil
+    applyPendingPedestalRestore()
+    schedulePedestalCapture()
 end
 
 function Wheelchair:OnUpdate()
@@ -332,6 +542,8 @@ function Wheelchair:OnUpdate()
                 pushRoomState(pendingTarget)
                 pendingTarget = nil
                 pendingSettleFrames = 0
+                pendingSourcePedestalKey = nil
+                pendingSourcePedestals = nil
                 showMessage("Room restore was refused by the game", 120)
             end
         end
@@ -342,7 +554,7 @@ function Wheelchair:OnUpdate()
         for index = 0, math.min(game:GetNumPlayers(), #verificationTarget.players) - 1 do
             -- Room-entry callbacks can adjust health and charges after the
             -- first restore. Reapply combat values for two settling frames.
-            restorePlayer(Isaac.GetPlayer(index), verificationTarget.players[index + 1], false)
+            restorePlayer(Isaac.GetPlayer(index), verificationTarget.players[index + 1], false, false)
         end
         verificationFrames = verificationFrames - 1
         if verificationFrames == 0 then
@@ -352,6 +564,11 @@ function Wheelchair:OnUpdate()
             verificationTarget = nil
         end
         return
+    end
+
+    if pedestalCaptureFrames > 0 then
+        pedestalCaptureFrames = pedestalCaptureFrames - 1
+        if pedestalCaptureFrames == 0 then captureRoomEntryPedestals() end
     end
 
     -- This working copy follows Isaac every frame, but it is not a timeline

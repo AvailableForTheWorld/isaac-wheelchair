@@ -1,6 +1,6 @@
 # Wheelchair Timeline
 
-Wheelchair is now an in-game, linear safety timeline for The Binding of Isaac: Repentance+.
+Wheelchair is an in-game, linear safety timeline for The Binding of Isaac: Repentance+.
 
 There is no companion window, global hotkey, controller panel, process-closing automation, save-file overwrite, relaunch, node tree, or branching logic.
 
@@ -22,22 +22,24 @@ The cache is held only in memory. It resets on a new run, game restart, or floor
 - Red-heart containers, red hearts, soul/black-heart quantity, bone-heart containers, eternal hearts, and golden hearts.
 - Rotten hearts, broken hearts, and the exact soul/black-heart pattern.
 - Coins, keys, bombs, giga bombs, golden keys, and golden bombs.
-- Active-item charges when the same active item is still equipped.
+- Passive collectibles and active-item identities/charges.
 - Bethany soul/blood charges and Tainted ??? poop mana.
 
-Collected passive items, equipped active items, trinkets, cards, and pills are deliberately preserved across RT. Wheelchair never removes or replaces equipment. This lets a treasure-room pickup remain owned while health and combat resources rewind.
+When RT/F5 rewinds out of a room, collectible equipment is returned to the cached inventory from the target state. If an item was picked up from a collectible pedestal in the departed room, it is therefore unequipped. Wheelchair remembers the collectible pedestals that existed when that room was entered and reconstructs them on the next normal entry, so the item can be picked up again.
+
+Pedestal reconstruction is one-use and limited to collectible pedestals. It does not duplicate an item on every visit, and it deliberately does not reconstruct enemies, grid objects, chests, trinkets, cards, pills, or ordinary pickups. Trinkets, cards, and pills remain owned when rewinding.
 
 Player combat values are applied once after the target room loads and verified for two more update frames. This prevents later room-entry processing from restoring the health or resources from the room where RT was pressed.
 
 Wheelchair deliberately does not call Isaac's built-in Glowing Hourglass-style `rewind`. That engine feature owns only one backup and loading it can also roll a mod's Lua state backward, which previously destroyed or desynchronized the remaining timeline after the first step.
 
-Every step now uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values while leaving inventory untouched. This makes repeated room-by-room steps reliable. The engine still does not expose a complete serializable room snapshot, so Wheelchair cannot perfectly restore every enemy AI frame, pickup, grid change, mod entity, item-pool decision, or hidden RNG value. Cross-floor rewind remains intentionally disabled for stability.
+Every step uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values. This makes repeated room-by-room steps reliable. The engine still does not expose a complete serializable room snapshot, so Wheelchair cannot perfectly restore every enemy AI frame, non-collectible pickup, grid change, mod entity, item-pool decision, or hidden RNG value. Cross-floor rewind remains intentionally disabled for stability.
 
 `ChangeRoom` completes asynchronously in Repentance+. Wheelchair waits up to six seconds for the requested room and restores the cached values immediately after the new-room callback confirms the transition; it does not reject a valid transition after an arbitrary short delay.
 
 Rooms are identified by `RoomDescriptor.SafeGridIndex`, unique `ListIndex`, and dimension. `GetCurrentRoomIndex()` is intentionally not used because it can refer to a different quadrant of a large room. Saving the dimension also prevents an index from resolving to the mirror, Mines escape, or Death Certificate dimension.
 
-The last frame in a departing room is normally inside a doorway trigger. When Wheelchair restores that room, it clamps Isaac's saved position 80 units inside the walls and selects a nearby free position. This prevents the same door from immediately returning Isaac to the room he just rewound from.
+The last frame in a departing room is normally inside a doorway trigger. When Wheelchair restores that room, it clamps Isaac's saved position 80 units inside the walls and selects a nearby free position. This prevents the same door from immediately returning Isaac to the room it just rewound from.
 
 Before changing rooms, Wheelchair clears `Level.LeaveDoor`. Isaac otherwise uses a stale door slot to calculate a destination relative to the current room and can ignore the requested room index. The stored grid address is also checked against the room's unique `ListIndex`; a mismatch is refused instead of opening an unrelated or hidden room.
 
