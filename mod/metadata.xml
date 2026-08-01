@@ -2,7 +2,7 @@
 <metadata>
   <name>Wheelchair Emergency Rewind</name>
   <directory>wheelchair</directory>
-  <description>F5 or controller RT invokes Isaac's built-in one-room rewind.</description>
-  <version>3.0.0</version>
+  <description>G or controller RT invokes Isaac's built-in one-room rewind; shortcuts are configurable through MCM.</description>
+  <version>3.1.0</version>
   <visibility>Private</visibility>
 </metadata>
