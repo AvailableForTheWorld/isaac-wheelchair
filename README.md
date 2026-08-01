@@ -13,7 +13,7 @@ Either input invokes Isaac's built-in `rewind` command. The game restores its ow
 
 There is no custom timeline, multi-room cache, state reconstruction, collectible modification, pedestal spawning, room switching, tree interface, or Steam save-file access. Repeated historical rewinds are not supported because the game exposes only its native last-room backup.
 
-Wheelchair checks for a newly triggered button press every update and invokes `rewind` immediately. There is no timer, hold duration, or input cooldown in the mod.
+Wheelchair checks keyboard input every update and tracks the controller button's pressed state to detect one reliable rising edge per physical press, including analog triggers such as RT. It invokes `rewind` immediately. There is no timer, hold duration, or input cooldown in the mod.
 
 ## Changing the shortcuts
 

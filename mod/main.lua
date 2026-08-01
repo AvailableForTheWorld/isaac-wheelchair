@@ -36,6 +36,8 @@ end
 
 local mcmLoaded, MCM = pcall(require, "scripts.modconfig")
 local mcmWasVisible = false
+local controllerPressedByIndex = {}
+local trackedControllerShortcut = nil
 
 if mcmLoaded then
     local text = getTranslation()
@@ -94,18 +96,39 @@ end
 
 local function controllerShortcutTriggered()
     local shortcut = getConfiguredShortcut("ControllerShortcut", DEFAULT_CONTROLLER_SHORTCUT)
+    if shortcut ~= trackedControllerShortcut then
+        controllerPressedByIndex = {}
+        trackedControllerShortcut = shortcut
+    end
     if shortcut < 0 then return false end
 
+    local activeControllerIndexes = {}
+    local triggered = false
     for index = 0, game:GetNumPlayers() - 1 do
         local player = Isaac.GetPlayer(index)
-        if Input.IsButtonTriggered(shortcut, player.ControllerIndex) then
-            return true
+        local controllerIndex = player.ControllerIndex
+
+        if not activeControllerIndexes[controllerIndex] then
+            local pressed = Input.IsButtonPressed(shortcut, controllerIndex)
+            if pressed and not controllerPressedByIndex[controllerIndex] then
+                triggered = true
+            end
+
+            controllerPressedByIndex[controllerIndex] = pressed
+            activeControllerIndexes[controllerIndex] = true
         end
     end
-    return false
+
+    return triggered
 end
 
 function Wheelchair:OnUpdate()
+    -- Track the held state even while MCM is visible or the game is paused.
+    -- Unlike Isaac's one-update IsButtonTriggered event, this cannot miss a
+    -- normal multi-frame analog-trigger press. The rising edge still ensures
+    -- that each physical press requests at most one rewind.
+    local controllerTriggered = controllerShortcutTriggered()
+
     -- Do not activate rewind while the same buttons are being captured or
     -- used to navigate Mod Config Menu.
     if mcmLoaded and MCM.IsVisible then
@@ -119,7 +142,7 @@ function Wheelchair:OnUpdate()
         return
     end
 
-    if keyboardShortcutTriggered() or controllerShortcutTriggered() then
+    if keyboardShortcutTriggered() or controllerTriggered then
         rewind()
     end
 end
