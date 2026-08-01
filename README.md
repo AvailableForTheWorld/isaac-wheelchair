@@ -28,6 +28,10 @@ Every step now uses the mod-owned 100-room stack and the standard same-floor `Ga
 
 `ChangeRoom` completes asynchronously in Repentance+. Wheelchair waits up to six seconds for the requested room and restores the cached values immediately after the new-room callback confirms the transition; it does not reject a valid transition after an arbitrary short delay.
 
+Rooms are identified by `RoomDescriptor.SafeGridIndex`, unique `ListIndex`, and dimension. `GetCurrentRoomIndex()` is intentionally not used because it can refer to a different quadrant of a large room. Saving the dimension also prevents an index from resolving to the mirror, Mines escape, or Death Certificate dimension.
+
+The files named `rep+gamestate1.dat`, `rep+gamestate2.dat`, and `rep+gamestate3.dat` belong to Isaac's three selectable save slots. They are not three historical states. Wheelchair's current in-memory timeline works the same on slot 1, 2, or 3 and never reads or writes these files.
+
 ## Installation
 
 Run `Install-Mod.ps1`, then enable **Wheelchair 100-State Timeline** in Isaac's Mods menu. The updated mod has already been installed on the development machine.

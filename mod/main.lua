@@ -37,8 +37,20 @@ local function snapshotPlayer(player)
     }
 end
 
+local function getRoomDimension(level, descriptor)
+    local gridIndex = descriptor.SafeGridIndex
+    for dimension = 0, 2 do
+        local candidate = level:GetRoomByIdx(gridIndex, dimension)
+        if candidate ~= nil and candidate.Data ~= nil and candidate.ListIndex == descriptor.ListIndex then
+            return dimension
+        end
+    end
+    return -1 -- let the API use the current dimension if it cannot be resolved
+end
+
 local function snapshotCurrentState()
     local level = game:GetLevel()
+    local descriptor = level:GetCurrentRoomDesc()
     local players = {}
     for index = 0, game:GetNumPlayers() - 1 do
         players[index + 1] = snapshotPlayer(Isaac.GetPlayer(index))
@@ -48,7 +60,9 @@ local function snapshotCurrentState()
         frame = game:GetFrameCount(),
         stage = level:GetStage(),
         stageType = level:GetStageType(),
-        roomIndex = level:GetCurrentRoomIndex(),
+        roomIndex = descriptor.SafeGridIndex,
+        listIndex = descriptor.ListIndex,
+        dimension = getRoomDimension(level, descriptor),
         players = players
     }
 end
@@ -59,7 +73,7 @@ local function pushRoomState(state)
     while #timeline > MAX_STATES do
         table.remove(timeline, 1)
     end
-    Isaac.DebugString("[Wheelchair] cached room " .. state.roomIndex .. "; history=" .. #timeline)
+    Isaac.DebugString("[Wheelchair] cached room grid=" .. state.roomIndex .. " list=" .. state.listIndex .. " dim=" .. state.dimension .. "; history=" .. #timeline)
 end
 
 local function safeAdd(method, player, amount, extra)
@@ -98,7 +112,7 @@ local function applyTarget(target)
     pendingTimeoutFrames = 0
     pendingSettleFrames = 0
     liveSnapshot = target
-    Isaac.DebugString("[Wheelchair] restored room " .. target.roomIndex .. "; older=" .. #timeline)
+    Isaac.DebugString("[Wheelchair] restored room grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension .. "; older=" .. #timeline)
     showMessage("Returned to previous room (" .. #timeline .. " older cached)", 75)
 end
 
@@ -126,15 +140,15 @@ local function requestRewind()
     pendingTimeoutFrames = 180
     pendingSettleFrames = 0
     inputCooldown = 12
-    Isaac.DebugString("[Wheelchair] requesting room " .. target.roomIndex .. "; older=" .. #timeline)
+    Isaac.DebugString("[Wheelchair] requesting room grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension .. "; older=" .. #timeline)
 
-    if target.roomIndex == level:GetCurrentRoomIndex() then
+    if target.listIndex == level:GetCurrentRoomDesc().ListIndex then
         applyTarget(target)
     else
         -- Never call the built-in rewind here. Glowing Hourglass owns only one
         -- engine backup and loading it can roll the Lua mod state backward too.
         -- ChangeRoom keeps this mod-owned history alive for repeated steps.
-        game:ChangeRoom(target.roomIndex)
+        game:ChangeRoom(target.roomIndex, target.dimension)
     end
 end
 
@@ -189,8 +203,9 @@ function Wheelchair:OnUpdate()
 
     if pendingTarget ~= nil then
         local level = game:GetLevel()
-        local currentRoom = level:GetCurrentRoomIndex()
-        if currentRoom == pendingTarget.roomIndex then
+        local currentDescriptor = level:GetCurrentRoomDesc()
+        local currentListIndex = currentDescriptor.ListIndex
+        if currentListIndex == pendingTarget.listIndex then
             if pendingSettleFrames > 0 then
                 pendingSettleFrames = pendingSettleFrames - 1
             else
@@ -199,7 +214,7 @@ function Wheelchair:OnUpdate()
         else
             pendingTimeoutFrames = pendingTimeoutFrames - 1
             if pendingTimeoutFrames <= 0 then
-                Isaac.DebugString("[Wheelchair] timeout waiting for room " .. pendingTarget.roomIndex .. "; current=" .. currentRoom)
+                Isaac.DebugString("[Wheelchair] timeout waiting for grid=" .. pendingTarget.roomIndex .. " list=" .. pendingTarget.listIndex .. " dim=" .. pendingTarget.dimension .. "; currentList=" .. currentListIndex)
                 pushRoomState(pendingTarget)
                 pendingTarget = nil
                 pendingSettleFrames = 0
