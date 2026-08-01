@@ -36,6 +36,8 @@ end
 
 local mcmLoaded, MCM = pcall(require, "scripts.modconfig")
 local mcmWasVisible = false
+local keyboardPressed = false
+local trackedKeyboardShortcut = nil
 local controllerPressedByIndex = {}
 local trackedControllerShortcut = nil
 
@@ -86,12 +88,19 @@ end
 
 local function keyboardShortcutTriggered()
     local shortcut = getConfiguredShortcut("KeyboardShortcut", DEFAULT_KEYBOARD_SHORTCUT)
+    if shortcut ~= trackedKeyboardShortcut then
+        keyboardPressed = false
+        trackedKeyboardShortcut = shortcut
+    end
     if shortcut < 0 then return false end
 
     -- Isaac can report a controller button whose number overlaps a keyboard
     -- key. This is the same guard used by Mod Config Menu's input helper.
-    return Input.IsButtonTriggered(shortcut, 0)
-        and not Input.IsButtonTriggered(shortcut % 32, 0)
+    local pressed = Input.IsButtonPressed(shortcut, 0)
+        and not Input.IsButtonPressed(shortcut % 32, 0)
+    local triggered = pressed and not keyboardPressed
+    keyboardPressed = pressed
+    return triggered
 end
 
 local function controllerShortcutTriggered()
@@ -123,10 +132,11 @@ local function controllerShortcutTriggered()
 end
 
 function Wheelchair:OnUpdate()
-    -- Track the held state even while MCM is visible or the game is paused.
-    -- Unlike Isaac's one-update IsButtonTriggered event, this cannot miss a
-    -- normal multi-frame analog-trigger press. The rising edge still ensures
-    -- that each physical press requests at most one rewind.
+    -- Track held states even while MCM is visible or the game is paused.
+    -- Unlike Isaac's one-update IsButtonTriggered event, these checks cannot
+    -- miss a normal multi-frame press. The rising edges still ensure that
+    -- each physical press requests at most one rewind.
+    local keyboardTriggered = keyboardShortcutTriggered()
     local controllerTriggered = controllerShortcutTriggered()
 
     -- Do not activate rewind while the same buttons are being captured or
@@ -142,7 +152,7 @@ function Wheelchair:OnUpdate()
         return
     end
 
-    if keyboardShortcutTriggered() or controllerTriggered then
+    if keyboardTriggered or controllerTriggered then
         rewind()
     end
 end
