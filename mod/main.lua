@@ -3,24 +3,79 @@ local game = Game()
 
 local MAX_STATES = 100
 local SAFE_POSITION_MARGIN = 80
+local INVENTORY_SCAN_INTERVAL = 30
 
 local timeline = {}
 local liveSnapshot = nil -- refreshed in place; committed only when leaving a room
 local pendingTarget = nil
 local pendingTimeoutFrames = 0
 local pendingSettleFrames = 0
+local verificationTarget = nil
+local verificationFrames = 0
 local inputCooldown = 0
 local lastStage = nil
 local lastStageType = nil
 local message = ""
 local messageUntil = 0
+local inventoryCache = {}
 
 local function showMessage(text, duration)
     message = text
     messageUntil = game:GetFrameCount() + (duration or 90)
 end
 
-local function snapshotPlayer(player)
+local function copyCounts(source)
+    local result = {}
+    for id, count in pairs(source or {}) do result[id] = count end
+    return result
+end
+
+local function scanPassiveCollectibles(player)
+    local counts = {}
+    local itemConfig = Isaac.GetItemConfig()
+    local collectibles = itemConfig:GetCollectibles()
+    for id = 1, collectibles.Size - 1 do
+        local config = itemConfig:GetCollectible(id)
+        if config ~= nil and config.Type ~= ItemType.ITEM_ACTIVE then
+            local count = player:GetCollectibleNum(id, true)
+            if count > 0 then counts[id] = count end
+        end
+    end
+    return counts
+end
+
+local function snapshotPassiveCollectibles(player, playerIndex)
+    local frame = game:GetFrameCount()
+    local total = player:GetCollectibleCount()
+    local cached = inventoryCache[playerIndex]
+    if cached == nil or cached.total ~= total or frame - cached.frame >= INVENTORY_SCAN_INTERVAL then
+        cached = {
+            frame = frame,
+            total = total,
+            counts = scanPassiveCollectibles(player)
+        }
+        inventoryCache[playerIndex] = cached
+    end
+    return copyCounts(cached.counts)
+end
+
+local function snapshotPlayer(player, playerIndex)
+    local activeItems = {}
+    for slot = 0, 3 do
+        activeItems[slot + 1] = {
+            item = player:GetActiveItem(slot),
+            charge = player:GetActiveCharge(slot)
+        }
+    end
+
+    local pocketItems = {}
+    for slot = 0, 3 do
+        pocketItems[slot + 1] = {
+            card = player:GetCard(slot),
+            pill = player:GetPill(slot)
+        }
+    end
+
     return {
         playerType = player:GetPlayerType(),
         x = player.Position.X,
@@ -28,13 +83,25 @@ local function snapshotPlayer(player)
         maxHearts = player:GetMaxHearts(),
         hearts = player:GetHearts(),
         soulHearts = player:GetSoulHearts(),
+        blackHearts = player:GetBlackHearts(),
         boneHearts = player:GetBoneHearts(),
+        rottenHearts = player:GetRottenHearts(),
+        brokenHearts = player:GetBrokenHearts(),
         eternalHearts = player:GetEternalHearts(),
         goldenHearts = player:GetGoldenHearts(),
         coins = player:GetNumCoins(),
         keys = player:GetNumKeys(),
         bombs = player:GetNumBombs(),
-        activeCharge = player:GetActiveCharge()
+        gigaBombs = player:GetNumGigaBombs(),
+        goldenKey = player:HasGoldenKey(),
+        goldenBomb = player:HasGoldenBomb(),
+        soulCharge = player:GetSoulCharge(),
+        bloodCharge = player:GetBloodCharge(),
+        poopMana = player:GetPoopMana(),
+        trinkets = {player:GetTrinket(0), player:GetTrinket(1)},
+        pocketItems = pocketItems,
+        activeItems = activeItems,
+        passiveCollectibles = snapshotPassiveCollectibles(player, playerIndex)
     }
 end
 
@@ -54,7 +121,7 @@ local function snapshotCurrentState()
     local descriptor = level:GetCurrentRoomDesc()
     local players = {}
     for index = 0, game:GetNumPlayers() - 1 do
-        players[index + 1] = snapshotPlayer(Isaac.GetPlayer(index))
+        players[index + 1] = snapshotPlayer(Isaac.GetPlayer(index), index + 1)
     end
 
     return {
@@ -79,11 +146,13 @@ end
 
 local function safeAdd(method, player, amount, extra)
     if amount == 0 then return end
+    local ok, errorMessage
     if extra == nil then
-        pcall(method, player, amount)
+        ok, errorMessage = pcall(method, player, amount)
     else
-        pcall(method, player, amount, extra)
+        ok, errorMessage = pcall(method, player, amount, extra)
     end
+    if not ok then Isaac.DebugString("[Wheelchair] restore API error: " .. tostring(errorMessage)) end
 end
 
 local function getSafeRestoredPosition(saved)
@@ -95,32 +164,155 @@ local function getSafeRestoredPosition(saved)
     return room:GetClampedPosition(position, SAFE_POSITION_MARGIN)
 end
 
-local function restorePlayer(player, saved)
+local function restorePassiveCollectibles(player, savedCounts)
+    local currentCounts = scanPassiveCollectibles(player)
+    for id, currentCount in pairs(currentCounts) do
+        local savedCount = savedCounts[id] or 0
+        for _ = savedCount + 1, currentCount do
+            pcall(player.RemoveCollectible, player, id, true, ActiveSlot.SLOT_PRIMARY, true)
+        end
+    end
+    for id, savedCount in pairs(savedCounts) do
+        local currentCount = currentCounts[id] or 0
+        for _ = currentCount + 1, savedCount do
+            -- FirstTimePickingUp=false avoids replaying pickup rewards.
+            pcall(player.AddCollectible, player, id, 0, false, ActiveSlot.SLOT_PRIMARY, 0)
+        end
+    end
+end
+
+local function restoreActiveItems(player, savedItems)
+    for slot = 0, 3 do
+        local saved = savedItems[slot + 1]
+        if saved ~= nil then
+            local currentItem = player:GetActiveItem(slot)
+            if currentItem ~= saved.item then
+                if currentItem ~= 0 then
+                    pcall(player.RemoveCollectible, player, currentItem, true, slot, true)
+                end
+                if saved.item ~= 0 then
+                    pcall(player.AddCollectible, player, saved.item, saved.charge or 0, false, slot, 0)
+                end
+            end
+            pcall(player.SetActiveCharge, player, saved.charge or 0, slot)
+        end
+    end
+end
+
+local function restoreTrinkets(player, savedTrinkets)
+    if player:GetTrinket(0) == (savedTrinkets[1] or 0) and player:GetTrinket(1) == (savedTrinkets[2] or 0) then
+        return
+    end
+    for slot = 0, 1 do
+        local current = player:GetTrinket(slot)
+        if current ~= 0 then pcall(player.TryRemoveTrinket, player, current) end
+    end
+    -- Add slot 1 first because AddTrinket inserts the next trinket in slot 0.
+    for slot = 2, 1, -1 do
+        local trinket = savedTrinkets[slot] or 0
+        if trinket ~= 0 then pcall(player.AddTrinket, player, trinket, false) end
+    end
+end
+
+local function restorePocketItems(player, savedItems)
+    for slot = 0, 3 do
+        local saved = savedItems[slot + 1]
+        if saved ~= nil and saved.card ~= 0 then
+            pcall(player.SetCard, player, slot, saved.card)
+        elseif saved ~= nil and saved.pill ~= 0 then
+            pcall(player.SetPill, player, slot, saved.pill)
+        elseif saved ~= nil then
+            pcall(player.SetCard, player, slot, 0)
+            pcall(player.SetPill, player, slot, 0)
+        end
+    end
+end
+
+local function restoreGoldenConsumables(player, saved)
+    if saved.goldenKey and not player:HasGoldenKey() then
+        pcall(player.AddGoldenKey, player)
+    elseif not saved.goldenKey and player:HasGoldenKey() then
+        pcall(player.RemoveGoldenKey, player)
+    end
+    if saved.goldenBomb and not player:HasGoldenBomb() then
+        pcall(player.AddGoldenBomb, player)
+    elseif not saved.goldenBomb and player:HasGoldenBomb() then
+        pcall(player.RemoveGoldenBomb, player)
+    end
+end
+
+local function restoreSoulAndBlackHearts(player, saved)
+    safeAdd(player.AddSoulHearts, player, -player:GetSoulHearts())
+    local remaining = saved.soulHearts or 0
+    local heartIndex = 0
+    local blackMask = saved.blackHearts or 0
+    while remaining > 0 do
+        local amount = math.min(2, remaining)
+        local isBlack = math.floor(blackMask / (2 ^ heartIndex)) % 2 == 1
+        if isBlack then
+            safeAdd(player.AddBlackHearts, player, amount)
+        else
+            safeAdd(player.AddSoulHearts, player, amount)
+        end
+        remaining = remaining - amount
+        heartIndex = heartIndex + 1
+    end
+end
+
+local function restorePlayer(player, saved, restoreInventory, restorePosition)
     if player:GetPlayerType() ~= saved.playerType then return end
 
-    safeAdd(player.AddMaxHearts, player, saved.maxHearts - player:GetMaxHearts(), false)
+    if restoreInventory then
+        restorePassiveCollectibles(player, saved.passiveCollectibles or {})
+        restoreActiveItems(player, saved.activeItems or {})
+        restoreTrinkets(player, saved.trinkets or {})
+        restorePocketItems(player, saved.pocketItems or {})
+        pcall(player.AddCacheFlags, player, CacheFlag.CACHE_ALL)
+        pcall(player.EvaluateItems, player)
+    end
+
+    safeAdd(player.AddBrokenHearts, player, (saved.brokenHearts or 0) - player:GetBrokenHearts())
+    safeAdd(player.AddMaxHearts, player, saved.maxHearts - player:GetMaxHearts(), true)
     safeAdd(player.AddBoneHearts, player, saved.boneHearts - player:GetBoneHearts())
     safeAdd(player.AddHearts, player, saved.hearts - player:GetHearts())
-    safeAdd(player.AddSoulHearts, player, saved.soulHearts - player:GetSoulHearts())
+    safeAdd(player.AddRottenHearts, player, (saved.rottenHearts or 0) - player:GetRottenHearts())
+    restoreSoulAndBlackHearts(player, saved)
     safeAdd(player.AddEternalHearts, player, saved.eternalHearts - player:GetEternalHearts())
     safeAdd(player.AddGoldenHearts, player, saved.goldenHearts - player:GetGoldenHearts())
     safeAdd(player.AddCoins, player, saved.coins - player:GetNumCoins())
     safeAdd(player.AddKeys, player, saved.keys - player:GetNumKeys())
     safeAdd(player.AddBombs, player, saved.bombs - player:GetNumBombs())
+    safeAdd(player.AddGigaBombs, player, (saved.gigaBombs or 0) - player:GetNumGigaBombs())
+    restoreGoldenConsumables(player, saved)
 
-    pcall(player.SetActiveCharge, player, saved.activeCharge or 0)
+    pcall(player.SetSoulCharge, player, saved.soulCharge or 0)
+    pcall(player.SetBloodCharge, player, saved.bloodCharge or 0)
+    safeAdd(player.AddPoopMana, player, (saved.poopMana or 0) - player:GetPoopMana())
 
-    player.Position = getSafeRestoredPosition(saved)
+    if restorePosition then player.Position = getSafeRestoredPosition(saved) end
     player.Velocity = Vector.Zero
+end
+
+local function playerCombatSummary(player)
+    return "red=" .. player:GetHearts()
+        .. " soul=" .. player:GetSoulHearts()
+        .. " max=" .. player:GetMaxHearts()
+        .. " coins=" .. player:GetNumCoins()
+        .. " keys=" .. player:GetNumKeys()
+        .. " bombs=" .. player:GetNumBombs()
+        .. " items=" .. player:GetCollectibleCount()
 end
 
 local function applyTarget(target)
     for index = 0, math.min(game:GetNumPlayers(), #target.players) - 1 do
-        restorePlayer(Isaac.GetPlayer(index), target.players[index + 1])
+        restorePlayer(Isaac.GetPlayer(index), target.players[index + 1], true, true)
+        inventoryCache[index + 1] = nil
     end
     pendingTarget = nil
     pendingTimeoutFrames = 0
     pendingSettleFrames = 0
+    verificationTarget = target
+    verificationFrames = 2
     liveSnapshot = target
     Isaac.DebugString("[Wheelchair] restored room grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension .. "; older=" .. #timeline)
     showMessage("Returned to previous room (" .. #timeline .. " older cached)", 75)
@@ -160,6 +352,9 @@ local function requestRewind()
     -- rejected valid transitions before the engine completed them.
     pendingTimeoutFrames = 180
     pendingSettleFrames = 0
+    verificationTarget = nil
+    verificationFrames = 0
+    inventoryCache = {}
     inputCooldown = 12
     Isaac.DebugString("[Wheelchair] requesting room grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension .. "; older=" .. #timeline)
 
@@ -196,6 +391,9 @@ function Wheelchair:OnGameStarted()
     pendingTarget = nil
     pendingTimeoutFrames = 0
     pendingSettleFrames = 0
+    verificationTarget = nil
+    verificationFrames = 0
+    inventoryCache = {}
     local level = game:GetLevel()
     lastStage = level:GetStage()
     lastStageType = level:GetStageType()
@@ -247,6 +445,22 @@ function Wheelchair:OnUpdate()
                 pendingSettleFrames = 0
                 showMessage("Room restore was refused by the game", 120)
             end
+        end
+        return
+    end
+
+    if verificationTarget ~= nil and verificationFrames > 0 then
+        for index = 0, math.min(game:GetNumPlayers(), #verificationTarget.players) - 1 do
+            -- Room-entry callbacks can adjust health and charges after the
+            -- first restore. Reapply combat values for two settling frames.
+            restorePlayer(Isaac.GetPlayer(index), verificationTarget.players[index + 1], false, false)
+        end
+        verificationFrames = verificationFrames - 1
+        if verificationFrames == 0 then
+            for index = 0, math.min(game:GetNumPlayers(), #verificationTarget.players) - 1 do
+                Isaac.DebugString("[Wheelchair] verified player " .. index .. " " .. playerCombatSummary(Isaac.GetPlayer(index)))
+            end
+            verificationTarget = nil
         end
         return
     end
