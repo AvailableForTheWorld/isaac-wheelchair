@@ -6,10 +6,12 @@ There is no companion window, global hotkey, controller panel, process-closing a
 
 ## Controls
 
-- **F5** on the keyboard: move backward one cached state.
-- **RT** on the controller: move backward one cached state.
+- **F5** on the keyboard: return to the previous cached room.
+- **RT** on the controller: return to the previous cached room.
 
-The mod records a small player-focused state approximately once per second and keeps at most 100 states. Rewinding repeatedly within three seconds continues farther backward. After normal play resumes, newer history is discarded and the linear timeline continues from the restored state.
+The mod records exactly one timeline entry per room transition and keeps at most 100 rooms. Player movement inside a room only refreshes a temporary working snapshot; it never creates another step. When Isaac enters the next room, Wheelchair commits the previous room's final state—the state immediately before entering the new room.
+
+Each F5/RT press pops one room from the linear timeline. Repeated presses therefore go room-by-room into the past. After normal play resumes and another room is entered, the timeline continues from that restored route; there are no branches.
 
 The cache is held only in memory. It resets on a new run, game restart, or floor change and never writes Isaac's Steam save files.
 

@@ -2,16 +2,12 @@ local Wheelchair = RegisterMod("Wheelchair 100-State Timeline", 1)
 local game = Game()
 
 local MAX_STATES = 100
-local CAPTURE_INTERVAL = 30 -- roughly one second at normal game speed
-local CONTINUE_REWIND_WINDOW = 90 -- three seconds to keep stepping backward
 
 local timeline = {}
+local liveSnapshot = nil -- refreshed in place; committed only when leaving a room
 local pendingTarget = nil
 local pendingRestoreFrames = 0
-local nextCaptureFrame = 0
-local resumeCaptureFrame = 0
 local inputCooldown = 0
-local rewindSequence = false
 local exactRoomRewindAvailable = false
 local lastStage = nil
 local lastStageType = nil
@@ -57,12 +53,12 @@ local function snapshotCurrentState()
     }
 end
 
-local function discardFutureAndCapture()
-    timeline[#timeline + 1] = snapshotCurrentState()
+local function pushRoomState(state)
+    if state == nil then return end
+    timeline[#timeline + 1] = state
     while #timeline > MAX_STATES do
         table.remove(timeline, 1)
     end
-    nextCaptureFrame = game:GetFrameCount() + CAPTURE_INTERVAL
 end
 
 local function safeAdd(method, player, amount, extra)
@@ -99,26 +95,21 @@ local function applyTarget(target)
     end
     pendingTarget = nil
     pendingRestoreFrames = 0
-    rewindSequence = true
-    resumeCaptureFrame = game:GetFrameCount() + CONTINUE_REWIND_WINDOW
-    nextCaptureFrame = resumeCaptureFrame
-    showMessage("Restored state " .. #timeline .. "/" .. MAX_STATES, 75)
+    liveSnapshot = target
+    showMessage("Returned to previous room (" .. #timeline .. " older cached)", 75)
 end
 
 local function requestRewind()
     if pendingTarget ~= nil or game:IsPaused() or game:GetNumPlayers() == 0 then return end
 
-    if not rewindSequence then
-        discardFutureAndCapture()
-    end
-
-    if #timeline < 2 then
-        showMessage("No earlier cached state on this floor", 90)
+    if #timeline == 0 then
+        showMessage("No previous room cached on this floor", 90)
         return
     end
 
-    table.remove(timeline) -- discard the current/future state: this is a linear timeline
-    local target = timeline[#timeline]
+    -- Popping the latest completed room makes this a single linear history.
+    -- Entering a new room after a rewind records the new future normally.
+    local target = table.remove(timeline)
     local level = game:GetLevel()
 
     if target.stage ~= level:GetStage() or target.stageType ~= level:GetStageType() then
@@ -155,15 +146,14 @@ end
 
 function Wheelchair:OnGameStarted()
     timeline = {}
+    liveSnapshot = nil
     pendingTarget = nil
     pendingRestoreFrames = 0
-    rewindSequence = false
     exactRoomRewindAvailable = false
     local level = game:GetLevel()
     lastStage = level:GetStage()
     lastStageType = level:GetStageType()
-    nextCaptureFrame = game:GetFrameCount() + 2
-    showMessage("Timeline ready: F5 or RT steps backward", 120)
+    showMessage("Room timeline ready: F5 or RT goes back one room", 120)
 end
 
 function Wheelchair:OnNewRoom()
@@ -178,12 +168,15 @@ function Wheelchair:OnNewRoom()
     if lastStage ~= nil and (stage ~= lastStage or stageType ~= lastStageType) then
         timeline = {}
         showMessage("New floor: timeline cache reset", 90)
+    elseif liveSnapshot ~= nil then
+        -- liveSnapshot was refreshed during the final update in the room we just
+        -- left. Commit it now: movement never creates timeline entries.
+        pushRoomState(liveSnapshot)
     end
     lastStage = stage
     lastStageType = stageType
-    rewindSequence = false
+    liveSnapshot = nil
     exactRoomRewindAvailable = true
-    nextCaptureFrame = game:GetFrameCount() + 2
 end
 
 function Wheelchair:OnUpdate()
@@ -197,6 +190,7 @@ function Wheelchair:OnUpdate()
             if level:GetCurrentRoomIndex() == pendingTarget.roomIndex then
                 applyTarget(pendingTarget)
             else
+                pushRoomState(pendingTarget)
                 pendingTarget = nil
                 showMessage("Room restore was refused by the game", 120)
             end
@@ -204,13 +198,9 @@ function Wheelchair:OnUpdate()
         return
     end
 
-    local frame = game:GetFrameCount()
-    if rewindSequence and frame >= resumeCaptureFrame then
-        rewindSequence = false
-    end
-    if not rewindSequence and frame >= nextCaptureFrame and game:GetNumPlayers() > 0 then
-        discardFutureAndCapture()
-    end
+    -- This working copy follows Isaac every frame, but it is not a timeline
+    -- entry. Only MC_POST_NEW_ROOM commits it as the room-exit state.
+    if game:GetNumPlayers() > 0 then liveSnapshot = snapshotCurrentState() end
 
     if inputCooldown == 0 and rewindInputTriggered() then
         requestRewind()
@@ -219,7 +209,7 @@ end
 
 function Wheelchair:OnRender()
     if game:GetNumPlayers() == 0 then return end
-    Isaac.RenderText("Wheelchair timeline: " .. #timeline .. "/" .. MAX_STATES .. "  [F5 / RT: back]", 52, 28, 0.72, 1.0, 0.72, 1.0)
+    Isaac.RenderText("Wheelchair rooms: " .. #timeline .. "/" .. MAX_STATES .. "  [F5 / RT: previous room]", 52, 28, 0.72, 1.0, 0.72, 1.0)
     if message ~= "" and game:GetFrameCount() < messageUntil then
         Isaac.RenderText(message, 52, 40, 1.0, 0.9, 0.45, 1.0)
     end
