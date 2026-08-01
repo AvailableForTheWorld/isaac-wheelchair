@@ -2,10 +2,12 @@
 <metadata>
   <name>Wheelchair Emergency Rewind / 轮椅紧急回溯</name>
   <directory>wheelchair</directory>
-  <id></id>
+  <id>3775722454</id>
   <description>Press G or controller RT to invoke Isaac's built-in one-room rewind. Shortcuts are configurable through Mod Config Menu.
 
 按下键盘 G 键或手柄 RT 键即可使用以撒原生的单房间回溯功能。快捷键可以通过 Mod Config Menu 修改。</description>
-  <version>3.2.0</version>
-  <visibility>Private</visibility>
+  <version>3.2.1</version>
+  <visibility>Public</visibility>
+  <tag id="Lua"/>
+  <tag id="Tweaks"/>
 </metadata>
