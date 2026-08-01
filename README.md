@@ -1,5 +1,7 @@
 # Wheelchair Emergency Rewind
 
+![Isaac wheeling himself in a wheelchair](assets/workshop-cover.png)
+
 Wheelchair is a minimal in-game emergency rewind for The Binding of Isaac: Repentance+.
 
 ## Default controls
