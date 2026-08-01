@@ -3,7 +3,7 @@
 Wheelchair adds a branchable checkpoint tree plus a deliberately separate quick rewind to The Binding of Isaac: Repentance+.
 
 1. **Exact branchable checkpoints:** keep the companion running and press **RT** or global **F6**. Wheelchair closes Isaac normally, waits for cached run state to flush, creates an immutable SHA-256-checked node, and relaunches the game. Restoring an older node preserves the old future and makes the next checkpoint a child on a new branch.
-2. **Controller tree:** press **LB** or global **F7** to show the tree over the game. Use **X/Y/A/B** for left/up/down/right, **RT** to restore the highlighted node, and **Back** to hide the tree.
+2. **Controller tree:** press the center-right **Start/Menu** button (called Shift/Turbo/Menu on some controllers) or global **F7** to show the tree over the game. Use **X/Y/A/B** for left/up/down/right, **RT** to restore the highlighted node, and the center-left **Back/View** button to hide the tree.
 3. **Quick rewind:** press **F5** in a run for Isaac's built-in one-room rewind. It cannot go back multiple rooms; use exact nodes for that.
 
 ## Installed paths
@@ -26,7 +26,7 @@ Wheelchair automatically finds the Isaac save directory when only one local Stea
 
 1. Keep `Start-Wheelchair.cmd` running while playing.
 2. Press **RT** or **F6** to create a node. The close/snapshot/relaunch cycle is automatic because live file replacement is unsafe.
-3. Press **LB** or **F7** to open the tree.
+3. Press the center-right **Start/Menu** button or **F7** to open the tree.
 4. Navigate with **X/Y/A/B** and press **RT** on any node to restore it.
 5. Wheelchair creates an automatic safety node, restores through verified temporary files, starts a new branch at the selected node, and relaunches Isaac.
 

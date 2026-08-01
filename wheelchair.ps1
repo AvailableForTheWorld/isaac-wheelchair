@@ -86,7 +86,7 @@ $form.ForeColor = [Drawing.Color]::WhiteSmoke
 $banner = New-Object Windows.Forms.Label
 $banner.SetBounds(15,12,930,50)
 $banner.ForeColor = [Drawing.Color]::WhiteSmoke
-$banner.Text = 'RT / F6: create exact node (safe close, snapshot, resume)    LB / F7: show tree    Tree: X/Y/A/B = left/up/down/right, RT = restore, Back = close'
+$banner.Text = 'RT / F6: create exact node (safe close, snapshot, resume)    Start/Menu / F7: show tree    Tree: X/Y/A/B = left/up/down/right, RT = restore, Back/View = close'
 $form.Controls.Add($banner)
 
 $tree = New-Object Windows.Forms.TreeView
@@ -266,7 +266,8 @@ $hotKeyWindow.add_HotKeyPressed({
     elseif ($eventArgs.Id -eq 2) { Show-Tree }
 })
 
-# XInput mapping: X/Y/A/B = left/up/down/right, LB = tree, RT = checkpoint/restore, Back = close tree.
+# XInput mapping: X/Y/A/B = left/up/down/right, center Start/Menu = tree,
+# RT = checkpoint/restore, and center Back/View = close tree.
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 60
 $timer.Add_Tick({
@@ -277,7 +278,7 @@ $timer.Add_Tick({
         $pressed = [uint16]($buttons -band (-bnot $script:lastButtons))
         $rt = $state.Gamepad.RightTrigger -ge 180
         $rtPressed = $rt -and -not $script:lastRightTrigger
-        if (($pressed -band 0x0100) -ne 0) { Show-Tree }
+        if (($pressed -band 0x0010) -ne 0) { Show-Tree }
         elseif ($script:treeMode) {
             if (($pressed -band 0x4000) -ne 0) { Move-TreeLeft }
             if (($pressed -band 0x8000) -ne 0) { Move-TreeUp }
