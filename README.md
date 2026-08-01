@@ -22,14 +22,16 @@ The cache is held only in memory. It resets on a new run, game restart, or floor
 - Red-heart containers, red hearts, soul/black-heart quantity, bone-heart containers, eternal hearts, and golden hearts.
 - Rotten hearts, broken hearts, and the exact soul/black-heart pattern.
 - Coins, keys, bombs, giga bombs, golden keys, and golden bombs.
-- Passive collectibles, both held trinkets, cards/pills, active-item identities, and charges.
+- Active-item charges when the same active item is still equipped.
 - Bethany soul/blood charges and Tainted ??? poop mana.
+
+Collected passive items, equipped active items, trinkets, cards, and pills are deliberately preserved across RT. Wheelchair never removes or replaces equipment. This lets a treasure-room pickup remain owned while health and combat resources rewind.
 
 Player combat values are applied once after the target room loads and verified for two more update frames. This prevents later room-entry processing from restoring the health or resources from the room where RT was pressed.
 
 Wheelchair deliberately does not call Isaac's built-in Glowing Hourglass-style `rewind`. That engine feature owns only one backup and loading it can also roll a mod's Lua state backward, which previously destroyed or desynchronized the remaining timeline after the first step.
 
-Every step now uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values. This makes repeated room-by-room steps reliable. Passive items are restored through Isaac's supported add/remove APIs without replaying pickup rewards. The engine still does not expose a complete serializable room snapshot, so Wheelchair cannot perfectly restore every enemy AI frame, pickup, grid change, mod entity, item-pool decision, or hidden RNG value. Cross-floor rewind remains intentionally disabled for stability.
+Every step now uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values while leaving inventory untouched. This makes repeated room-by-room steps reliable. The engine still does not expose a complete serializable room snapshot, so Wheelchair cannot perfectly restore every enemy AI frame, pickup, grid change, mod entity, item-pool decision, or hidden RNG value. Cross-floor rewind remains intentionally disabled for stability.
 
 `ChangeRoom` completes asynchronously in Repentance+. Wheelchair waits up to six seconds for the requested room and restores the cached values immediately after the new-room callback confirms the transition; it does not reject a valid transition after an arbitrary short delay.
 
