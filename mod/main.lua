@@ -6,35 +6,65 @@ local DEFAULT_CONTROLLER_SHORTCUT = 12 -- Controller.TRIGGER_RIGHT in MCM
 local MCM_CATEGORY = "Wheelchair"
 local MCM_SUBCATEGORY = "Controls"
 
+local TRANSLATIONS = {
+    en = {
+        categoryInfo = "Configure the keyboard and controller shortcuts for the native one-step rewind.",
+        title = "Emergency Rewind",
+        keyboardShortcut = "Keyboard shortcut",
+        keyboardHelp = "Press a keyboard key to use for rewind. Go back without choosing a key to unbind it.",
+        controllerShortcut = "Controller shortcut",
+        controllerHelp = "Press a controller button to use for rewind. Go back without choosing a button to unbind it.",
+        defaults = "Defaults: G / Right Trigger",
+    },
+    zh = {
+        categoryInfo = "配置原生单步房间回溯的键盘和手柄快捷键。",
+        title = "紧急回溯",
+        keyboardShortcut = "键盘快捷键",
+        keyboardHelp = "按下一个键盘按键，将其设为回溯快捷键。不选择按键并返回即可解除绑定。",
+        controllerShortcut = "手柄快捷键",
+        controllerHelp = "按下一个手柄按键，将其设为回溯快捷键。不选择按键并返回即可解除绑定。",
+        defaults = "默认：G / 右扳机",
+    },
+}
+
+local function getTranslation()
+    if Options and Options.Language == "zh" then
+        return TRANSLATIONS.zh
+    end
+    return TRANSLATIONS.en
+end
+
 local mcmLoaded, MCM = pcall(require, "scripts.modconfig")
 local mcmWasVisible = false
 
 if mcmLoaded then
+    local text = getTranslation()
+
     MCM.SetCategoryInfo(
         MCM_CATEGORY,
-        "Configure the keyboard and controller shortcuts for the native one-step rewind."
+        text.categoryInfo
     )
-    MCM.AddTitle(MCM_CATEGORY, MCM_SUBCATEGORY, "Emergency Rewind")
+    MCM.AddTitle(MCM_CATEGORY, MCM_SUBCATEGORY, text.title)
     MCM.AddKeyboardSetting(
         MCM_CATEGORY,
         MCM_SUBCATEGORY,
         "KeyboardShortcut",
         DEFAULT_KEYBOARD_SHORTCUT,
-        "Keyboard shortcut",
+        text.keyboardShortcut,
         true,
-        "Press a keyboard key to use for rewind. Go back without choosing a key to unbind it."
+        text.keyboardHelp
     )
     MCM.AddControllerSetting(
         MCM_CATEGORY,
         MCM_SUBCATEGORY,
         "ControllerShortcut",
         DEFAULT_CONTROLLER_SHORTCUT,
-        "Controller shortcut",
+        text.controllerShortcut,
         true,
-        "Press a controller button to use for rewind. Go back without choosing a button to unbind it."
+        text.controllerHelp
     )
     MCM.AddSpace(MCM_CATEGORY, MCM_SUBCATEGORY)
-    MCM.AddText(MCM_CATEGORY, MCM_SUBCATEGORY, "Defaults: G / Right Trigger")
+    MCM.AddText(MCM_CATEGORY, MCM_SUBCATEGORY, text.defaults)
 end
 
 local function getConfiguredShortcut(attribute, defaultValue)

@@ -27,6 +27,10 @@ The two bindings can be changed independently or unbound. MCM stores the selecte
 
 Wheelchair ignores its rewind shortcuts while the MCM panel is open, preventing menu navigation or key capture from accidentally triggering rewind.
 
+## Languages
+
+Wheelchair supports English and Simplified Chinese. Its MCM labels and help text follow Isaac's language setting: Chinese is used when the game language is Simplified Chinese, and English is the fallback for every other language. The mod name and description in `metadata.xml` contain both languages for the Steam Workshop and Isaac's Mods menu.
+
 ## Installation
 
 Run `Install-Mod.ps1`, then enable **Wheelchair Emergency Rewind** in Isaac's Mods menu.
