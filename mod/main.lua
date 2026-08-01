@@ -2,6 +2,7 @@ local Wheelchair = RegisterMod("Wheelchair 100-State Timeline", 1)
 local game = Game()
 
 local MAX_STATES = 100
+local SAFE_POSITION_MARGIN = 80
 
 local timeline = {}
 local liveSnapshot = nil -- refreshed in place; committed only when leaving a room
@@ -85,6 +86,15 @@ local function safeAdd(method, player, amount, extra)
     end
 end
 
+local function getSafeRestoredPosition(saved)
+    local room = game:GetRoom()
+    -- The final frame before a room transition is normally inside the doorway.
+    -- Restoring that exact coordinate immediately activates the same door again.
+    local position = room:GetClampedPosition(Vector(saved.x, saved.y), SAFE_POSITION_MARGIN)
+    position = Isaac.GetFreeNearPosition(position, 40)
+    return room:GetClampedPosition(position, SAFE_POSITION_MARGIN)
+end
+
 local function restorePlayer(player, saved)
     if player:GetPlayerType() ~= saved.playerType then return end
 
@@ -100,7 +110,7 @@ local function restorePlayer(player, saved)
 
     pcall(player.SetActiveCharge, player, saved.activeCharge or 0)
 
-    player.Position = Vector(saved.x, saved.y)
+    player.Position = getSafeRestoredPosition(saved)
     player.Velocity = Vector.Zero
 end
 

@@ -30,6 +30,8 @@ Every step now uses the mod-owned 100-room stack and the standard same-floor `Ga
 
 Rooms are identified by `RoomDescriptor.SafeGridIndex`, unique `ListIndex`, and dimension. `GetCurrentRoomIndex()` is intentionally not used because it can refer to a different quadrant of a large room. Saving the dimension also prevents an index from resolving to the mirror, Mines escape, or Death Certificate dimension.
 
+The last frame in a departing room is normally inside a doorway trigger. When Wheelchair restores that room, it clamps Isaac's saved position 80 units inside the walls and selects a nearby free position. This prevents the same door from immediately returning Isaac to the room he just rewound from.
+
 The files named `rep+gamestate1.dat`, `rep+gamestate2.dat`, and `rep+gamestate3.dat` belong to Isaac's three selectable save slots. They are not three historical states. Wheelchair's current in-memory timeline works the same on slot 1, 2, or 3 and never reads or writes these files.
 
 ## Installation
