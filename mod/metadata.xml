@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <metadata>
-  <name>Wheelchair Emergency Rewind / 轮椅紧急回溯</name>
+  <name>[轮椅] 紧急回溯</name>
   <directory>wheelchair</directory>
   <id>3775722454</id>
-  <description>Press G or controller RT to invoke Isaac's built-in one-room rewind. Shortcuts are configurable through Mod Config Menu.
+  <description>发光沙漏 pro max，无限次使用（只能回溯一次，不能连续回溯多次）
 
-按下键盘 G 键或手柄 RT 键即可使用以撒原生的单房间回溯功能。快捷键可以通过 Mod Config Menu 修改。</description>
+    专注复活，只为满足你的完美主义。所有乐趣还得你自己发掘。不再为血不够/钱不多/开不到隐藏房而焦虑。
+
+    Press G or controller RT to invoke Isaac's built-in one-room rewind. Shortcuts are configurable
+    through Mod Config Menu.
+
+    按下键盘 G 键或手柄 RT 键即可使用以撒原生的单房间回溯功能。快捷键可以通过 Mod Config Menu 修改。</description>
   <version>3.2.3</version>
   <visibility>Public</visibility>
-  <tag id="Lua"/>
-  <tag id="Tweaks"/>
+  <tag id="Lua" />
+  <tag id="Tweaks" />
 </metadata>
