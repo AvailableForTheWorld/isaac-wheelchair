@@ -3,11 +3,9 @@ local game = Game()
 
 local DEFAULT_KEYBOARD_SHORTCUT = Keyboard.KEY_G
 local DEFAULT_CONTROLLER_SHORTCUT = 12 -- Controller.TRIGGER_RIGHT in MCM
-local INPUT_COOLDOWN = 45
 local MCM_CATEGORY = "Wheelchair"
 local MCM_SUBCATEGORY = "Controls"
 
-local cooldown = 0
 local mcmLoaded, MCM = pcall(require, "scripts.modconfig")
 local mcmWasVisible = false
 
@@ -50,7 +48,6 @@ end
 
 local function rewind()
     if not game:IsPaused() and game:GetNumPlayers() > 0 then
-        cooldown = INPUT_COOLDOWN
         Isaac.ExecuteCommand("rewind")
     end
 end
@@ -79,11 +76,6 @@ local function controllerShortcutTriggered()
 end
 
 function Wheelchair:OnUpdate()
-    if cooldown > 0 then
-        cooldown = cooldown - 1
-        return
-    end
-
     -- Do not activate rewind while the same buttons are being captured or
     -- used to navigate Mod Config Menu.
     if mcmLoaded and MCM.IsVisible then
@@ -94,7 +86,6 @@ function Wheelchair:OnUpdate()
         -- Swallow the button press that closed MCM, especially when that same
         -- controller button has just been selected as the rewind shortcut.
         mcmWasVisible = false
-        cooldown = 5
         return
     end
 
