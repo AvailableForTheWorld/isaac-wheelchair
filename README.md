@@ -22,7 +22,9 @@ The cache is held only in memory. It resets on a new run, game restart, or floor
 - Red-heart containers, red hearts, soul/black-heart quantity, bone-heart containers, eternal hearts, and golden hearts.
 - Coins, keys, bombs, and the primary active-item charge.
 
-For the immediately previous room, Wheelchair uses Isaac's built-in Glowing Hourglass-style rewind so the room is restored by the engine. For older points on the same floor, the standard API can safely return to the cached room and restore the player-focused values above, but it cannot perfectly serialize every enemy, pickup, grid change, mod entity, item-pool decision, or hidden engine value. Cross-floor deep rewind is intentionally refused for stability.
+Wheelchair deliberately does not call Isaac's built-in Glowing Hourglass-style `rewind`. That engine feature owns only one backup and loading it can also roll a mod's Lua state backward, which previously destroyed or desynchronized the remaining timeline after the first step.
+
+Every step now uses the mod-owned 100-room stack and the standard same-floor `Game:ChangeRoom` API, then restores the cached player-focused values. This makes repeated room-by-room steps reliable, but it cannot perfectly serialize every enemy, pickup, grid change, mod entity, item-pool decision, or hidden engine value. Cross-floor rewind remains intentionally disabled for stability.
 
 ## Installation
 

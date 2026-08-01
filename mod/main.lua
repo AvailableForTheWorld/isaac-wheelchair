@@ -8,7 +8,6 @@ local liveSnapshot = nil -- refreshed in place; committed only when leaving a ro
 local pendingTarget = nil
 local pendingRestoreFrames = 0
 local inputCooldown = 0
-local exactRoomRewindAvailable = false
 local lastStage = nil
 local lastStageType = nil
 local message = ""
@@ -59,6 +58,7 @@ local function pushRoomState(state)
     while #timeline > MAX_STATES do
         table.remove(timeline, 1)
     end
+    Isaac.DebugString("[Wheelchair] cached room " .. state.roomIndex .. "; history=" .. #timeline)
 end
 
 local function safeAdd(method, player, amount, extra)
@@ -96,6 +96,7 @@ local function applyTarget(target)
     pendingTarget = nil
     pendingRestoreFrames = 0
     liveSnapshot = target
+    Isaac.DebugString("[Wheelchair] restored room " .. target.roomIndex .. "; older=" .. #timeline)
     showMessage("Returned to previous room (" .. #timeline .. " older cached)", 75)
 end
 
@@ -120,15 +121,14 @@ local function requestRewind()
     pendingTarget = target
     pendingRestoreFrames = 3
     inputCooldown = 12
+    Isaac.DebugString("[Wheelchair] requesting room " .. target.roomIndex .. "; older=" .. #timeline)
 
     if target.roomIndex == level:GetCurrentRoomIndex() then
         applyTarget(target)
-    elseif exactRoomRewindAvailable then
-        exactRoomRewindAvailable = false
-        Isaac.ExecuteCommand("rewind")
     else
-        -- ChangeRoom is limited to the already-generated current floor. It does not
-        -- touch disk saves and is safer than pretending the process can be restored.
+        -- Never call the built-in rewind here. Glowing Hourglass owns only one
+        -- engine backup and loading it can roll the Lua mod state backward too.
+        -- ChangeRoom keeps this mod-owned history alive for repeated steps.
         game:ChangeRoom(target.roomIndex)
     end
 end
@@ -149,7 +149,6 @@ function Wheelchair:OnGameStarted()
     liveSnapshot = nil
     pendingTarget = nil
     pendingRestoreFrames = 0
-    exactRoomRewindAvailable = false
     local level = game:GetLevel()
     lastStage = level:GetStage()
     lastStageType = level:GetStageType()
@@ -176,7 +175,6 @@ function Wheelchair:OnNewRoom()
     lastStage = stage
     lastStageType = stageType
     liveSnapshot = nil
-    exactRoomRewindAvailable = true
 end
 
 function Wheelchair:OnUpdate()
