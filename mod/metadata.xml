@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <metadata>
-  <name>Wheelchair 100-State Timeline</name>
+  <name>Wheelchair Emergency Rewind</name>
   <directory>wheelchair</directory>
-  <description>F5 or controller RT steps backward one room through a 100-room linear timeline.</description>
-  <version>2.5.0</version>
+  <description>F5 or controller RT invokes Isaac's built-in one-room rewind.</description>
+  <version>3.0.0</version>
   <visibility>Private</visibility>
 </metadata>
