@@ -144,6 +144,17 @@ local function requestRewind()
         return
     end
 
+    -- Verify that the stored grid address still resolves to the same unique
+    -- room. Never let ChangeRoom fall through to an unrelated special room.
+    local targetDescriptor = level:GetRoomByIdx(target.roomIndex, target.dimension)
+    if targetDescriptor == nil or targetDescriptor.Data == nil or targetDescriptor.ListIndex ~= target.listIndex then
+        pushRoomState(target)
+        inputCooldown = 12
+        Isaac.DebugString("[Wheelchair] refused mismatched room address grid=" .. target.roomIndex .. " list=" .. target.listIndex .. " dim=" .. target.dimension)
+        showMessage("Cached room address no longer matches this floor", 120)
+        return
+    end
+
     pendingTarget = target
     -- ChangeRoom is asynchronous in Repentance+. The old three-frame check
     -- rejected valid transitions before the engine completed them.
@@ -158,6 +169,12 @@ local function requestRewind()
         -- Never call the built-in rewind here. Glowing Hourglass owns only one
         -- engine backup and loading it can roll the Lua mod state backward too.
         -- ChangeRoom keeps this mod-owned history alive for repeated steps.
+        -- A stale LeaveDoor makes Isaac ignore RoomIndex and choose a room
+        -- relative to the current door, which can even be an unvisited secret
+        -- room. Clear it and force ChangeRoom to honor the recorded address.
+        local staleLeaveDoor = level.LeaveDoor
+        level.LeaveDoor = -1
+        Isaac.DebugString("[Wheelchair] cleared LeaveDoor=" .. staleLeaveDoor .. " before room change")
         game:ChangeRoom(target.roomIndex, target.dimension)
     end
 end

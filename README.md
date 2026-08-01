@@ -32,6 +32,8 @@ Rooms are identified by `RoomDescriptor.SafeGridIndex`, unique `ListIndex`, and 
 
 The last frame in a departing room is normally inside a doorway trigger. When Wheelchair restores that room, it clamps Isaac's saved position 80 units inside the walls and selects a nearby free position. This prevents the same door from immediately returning Isaac to the room he just rewound from.
 
+Before changing rooms, Wheelchair clears `Level.LeaveDoor`. Isaac otherwise uses a stale door slot to calculate a destination relative to the current room and can ignore the requested room index. The stored grid address is also checked against the room's unique `ListIndex`; a mismatch is refused instead of opening an unrelated or hidden room.
+
 The files named `rep+gamestate1.dat`, `rep+gamestate2.dat`, and `rep+gamestate3.dat` belong to Isaac's three selectable save slots. They are not three historical states. Wheelchair's current in-memory timeline works the same on slot 1, 2, or 3 and never reads or writes these files.
 
 ## Installation
