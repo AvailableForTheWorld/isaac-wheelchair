@@ -1,0 +1,37 @@
+name: Update Steam Workshop
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_note:
+        description: Workshop change note
+        required: true
+        default: Fixed keyboard and controller shortcut detection.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steam-workshop-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Upload mod
+        uses: IsaacScript/isaac-steam-workshop-upload@4d788e35807eeaf5482275dda8a1f95b226fec85
+        with:
+          mod_path: mod
+          change_note: ${{ inputs.change_note }}
+        env:
+          CONFIG_VDF_CONTENTS: ${{ secrets.CONFIG_VDF_CONTENTS }}
+          # The uploader prints the parsed account name. Referencing this
+          # separate secret ensures GitHub masks that value in the job log.
+          STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
