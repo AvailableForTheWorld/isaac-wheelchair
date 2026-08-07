@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "mods": {
+    "wheelchair": {
+      "displayName": "[轮椅] 紧急回溯 Emergency Rewind",
+      "workshopContentPath": "mods/wheelchair/content",
+      "installDirectory": "wheelchair",
+      "workshopId": "3775722454"
+    }
+  }
+}

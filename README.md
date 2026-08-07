@@ -1,40 +1,50 @@
-# Wheelchair Emergency Rewind
+# Isaac Mods Monorepo
 
-![Isaac wheeling himself in a wheelchair](assets/workshop-cover.png)
+This repository contains independently installable and publishable mods for The Binding of Isaac: Repentance+.
 
-Wheelchair is a minimal in-game emergency rewind for The Binding of Isaac: Repentance+.
+## Mods
 
-## Default controls
+| Registry key | Mod | Local package | Steam Workshop |
+| --- | --- | --- | --- |
+| `wheelchair` | Wheelchair Emergency Rewind | [Documentation](mods/wheelchair/README.md) | [Workshop item 3775722454](https://steamcommunity.com/sharedfiles/filedetails/?id=3775722454) |
 
-- **G** on the keyboard.
-- **Right Trigger** on a controller.
+## Repository layout
 
-Either input invokes Isaac's built-in `rewind` command. The game restores its own most recent room backup, equivalent to the normal one-step rewind behavior. Isaac decides whether a rewind is currently available.
+```text
+mods.json                         Mod registry used by scripts and CI
+mods/<key>/content/               Exact directory uploaded to Workshop
+mods/<key>/README.md              Mod-specific documentation
+mods/<key>/assets/                Repository assets; not uploaded
+Install-Mod.ps1                   Installs one registered mod locally
+.github/workflows/update-workshop.yml
+                                  Publishes one registered mod
+```
 
-There is no custom timeline, multi-room cache, state reconstruction, collectible modification, pedestal spawning, room switching, tree interface, or Steam save-file access. Repeated historical rewinds are not supported because the game exposes only its native last-room backup.
+Keeping Workshop content in a dedicated `content` directory prevents documentation, preview source files, and files belonging to other mods from being uploaded accidentally.
 
-Wheelchair tracks the keyboard and controller buttons' pressed states every update to detect one reliable rising edge per physical press, including analog triggers such as RT. It invokes `rewind` immediately. There is no timer, hold duration, or input cooldown in the mod.
+## Install a mod locally
 
-## Changing the shortcuts
+Close Isaac, then run this from the repository root:
 
-Wheelchair supports [Mod Config Menu - Impure](https://steamcommunity.com/sharedfiles/filedetails/?id=3701683951), the maintained MCM version for Repentance and Repentance+.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Mod.ps1 -Mod wheelchair
+```
 
-1. Install and enable **Mod Config Menu - Impure**. Do not enable another MCM version at the same time.
-2. Start or continue a run.
-3. Press **L** on the keyboard or press the **right stick** on a controller to open MCM.
-4. Open **Wheelchair > Controls**.
-5. Select **Keyboard shortcut** or **Controller shortcut**, then press the new key or button.
+The `-Mod` value is a key from [`mods.json`](mods.json). The installer validates the registered content path and Workshop ID before copying that mod into Isaac's `mods` directory.
 
-The two bindings can be changed independently or unbound. MCM stores the selected values. Without MCM, Wheelchair continues to use G and Right Trigger.
+## Add another mod
 
-Wheelchair ignores its rewind shortcuts while the MCM panel is open, preventing menu navigation or key capture from accidentally triggering rewind.
+1. Create `mods/<key>/content/main.lua` and `mods/<key>/content/metadata.xml`.
+2. Keep that mod's README and non-Workshop assets outside its `content` directory.
+3. Add an entry to [`mods.json`](mods.json) with a unique key, content path, install directory, and `"workshopId": null` while the mod is still local-only.
+4. Install it locally with `Install-Mod.ps1 -Mod <key>` and test it.
+5. For a brand-new Workshop item, perform its first upload with Isaac's `ModUploader.exe`. The CI uploader requires an existing Workshop ID. Copy the generated ID into both `metadata.xml` and `mods.json`; subsequent updates can use the shared workflow.
 
-## Languages
+## Update a Workshop item
 
-Wheelchair supports English and Simplified Chinese. Its MCM labels and help text follow Isaac's language setting: Chinese is used when the game language is Simplified Chinese, and English is the fallback for every other language. The mod name and description in `metadata.xml` contain both languages for the Steam Workshop and Isaac's Mods menu.
+Open the repository's **Actions** tab, choose **Update Steam Workshop**, and select **Run workflow**. Enter:
 
-## Installation
+- **Mod registry key:** the key from `mods.json`, such as `wheelchair`.
+- **Workshop change note:** the note for that mod's update.
 
-Run `Install-Mod.ps1`, then enable **Wheelchair Emergency Rewind** in Isaac's Mods menu.
-
-The Wheelchair installer only copies `main.lua` and `metadata.xml` into Isaac's `mods\wheelchair` directory. It never reads or writes Steam userdata or Isaac save files.
+The workflow resolves the selected mod's own `workshopContentPath`, requires `main.lua` and `metadata.xml`, and verifies that the ID in `metadata.xml` matches the registry before invoking the uploader. The existing `CONFIG_VDF_CONTENTS` and `STEAM_USERNAME` repository secrets are shared by all registered mods published by the same Steam account.

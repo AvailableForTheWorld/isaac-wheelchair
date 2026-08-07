@@ -3,10 +3,14 @@ name: Update Steam Workshop
 on:
   workflow_dispatch:
     inputs:
+      mod:
+        description: Mod registry key from mods.json
+        required: true
+        default: wheelchair
       change_note:
         description: Workshop change note
         required: true
-        default: Fixed keyboard and controller shortcut detection.
+        default: Updated mod files.
 
 permissions:
   contents: read
@@ -25,10 +29,71 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Upload mod
+      - name: Resolve and validate selected mod
+        id: selected_mod
+        shell: bash
+        env:
+          MOD_KEY: ${{ inputs.mod }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          repo = Path.cwd().resolve()
+          registry_path = repo / "mods.json"
+          registry = json.loads(registry_path.read_text(encoding="utf-8"))
+          mod_key = os.environ["MOD_KEY"]
+
+          mods = registry.get("mods", {})
+          if mod_key not in mods:
+              available = ", ".join(sorted(mods)) or "(none)"
+              raise SystemExit(f"Unknown mod registry key '{mod_key}'. Available mods: {available}")
+
+          entry = mods[mod_key]
+          relative_path = Path(entry["workshopContentPath"])
+          content_path = (repo / relative_path).resolve()
+          mods_root = (repo / "mods").resolve()
+          if content_path == mods_root or mods_root not in content_path.parents:
+              raise SystemExit(f"Registered content path escapes the mods directory: {relative_path}")
+
+          main_path = content_path / "main.lua"
+          metadata_path = content_path / "metadata.xml"
+          for required_path in (main_path, metadata_path):
+              if not required_path.is_file():
+                  raise SystemExit(f"Missing required mod file: {required_path.relative_to(repo)}")
+
+          expected_id = str(entry.get("workshopId", ""))
+          if not expected_id.isdecimal():
+              raise SystemExit(
+                  f"Mod '{mod_key}' has no existing Workshop ID. Perform its first upload "
+                  "with Isaac's ModUploader, then update mods.json and metadata.xml."
+              )
+
+          metadata_id = (ET.parse(metadata_path).getroot().findtext("id") or "").strip()
+          if metadata_id != expected_id:
+              raise SystemExit(
+                  f"Workshop ID mismatch for '{mod_key}': metadata.xml has "
+                  f"'{metadata_id}', mods.json has '{expected_id}'."
+              )
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"path={content_path.relative_to(repo).as_posix()}\n")
+              output.write(f"name={entry['displayName']}\n")
+              output.write(f"workshop_id={expected_id}\n")
+
+          print(
+              f"Selected {entry['displayName']} ({mod_key}), "
+              f"Workshop item {expected_id}, content path {relative_path.as_posix()}"
+          )
+          PY
+
+      - name: Upload selected mod
         uses: IsaacScript/isaac-steam-workshop-upload@4d788e35807eeaf5482275dda8a1f95b226fec85
         with:
-          mod_path: mod
+          mod_path: ${{ steps.selected_mod.outputs.path }}
           change_note: ${{ inputs.change_note }}
         env:
           CONFIG_VDF_CONTENTS: ${{ secrets.CONFIG_VDF_CONTENTS }}
