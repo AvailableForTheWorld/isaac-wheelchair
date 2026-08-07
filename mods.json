@@ -1,6 +1,12 @@
 {
   "schemaVersion": 1,
   "mods": {
+    "sharingan": {
+      "displayName": "Sharingan / 写轮眼",
+      "workshopContentPath": "mods/sharingan/content",
+      "installDirectory": "sharingan",
+      "workshopId": null
+    },
     "wheelchair": {
       "displayName": "[轮椅] 紧急回溯 Emergency Rewind",
       "workshopContentPath": "mods/wheelchair/content",
