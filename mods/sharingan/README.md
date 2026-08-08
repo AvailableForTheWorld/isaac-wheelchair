@@ -47,13 +47,7 @@ Environmental damage is labelled separately when Isaac supplies the appropriate 
 
 Raw DPS is estimated as `Damage × 30 / (MaxFireDelay + 1)`. It does not model multishot, poison, familiars, lasers, knives, explosions, conditional effects, enemy armor, accuracy, or complex synergies.
 
-## Rewind behavior
-
-When **Wheelchair Emergency Rewind** triggers Isaac's native rewind, Sharingan restores all combat counters, item-damage attribution, and the damage-source ranking to the values captured when the current room was entered. Damage, kills, player hits, received-heart totals, item shares, and attacker counts from the discarded room attempt are removed.
-
-Sharingan uses two combat layers: cumulative committed totals and one small current-room delta. Entering a normal room commits the previous delta implicitly and starts a new one. Wheelchair's synchronous pre-rewind notification sets only a boolean-style pending signal; on the first update after Isaac confirms the room transition, Sharingan subtracts and discards the abandoned room delta and starts the returned room's layer. No historical combat tables are copied or rebuilt during the native transition. Periodic JSON saving and full inventory reconciliation are also kept away from the critical rewind frame.
-
-This integration applies to rewinds triggered through Wheelchair. Manually running Isaac's console command bypasses Wheelchair's pre-rewind notification.
+Combat statistics are cumulative. Rewinds are not detected and do not subtract previously recorded combat events.
 
 ## Complete, shape-aware floor map
 
@@ -90,14 +84,13 @@ The mod stores its current run, floor map, combat totals, and damage-source coun
 
 If you tested the earlier **Beginner Ledger** build, remove or disable its installed `mods\beginner-ledger` directory first. The installer deliberately does not delete renamed mods automatically, and enabling both copies would load the overlay twice.
 
-Close Isaac, then run these commands from the repository root so both sides of the rewind integration are current:
+Close Isaac, then run this command from the repository root:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Mod.ps1 -Mod wheelchair
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Mod.ps1 -Mod sharingan
 ```
 
-Enable **Wheelchair Emergency Rewind** and **Sharingan / 写轮眼** in Isaac's Mods menu.
+Enable **Sharingan / 写轮眼** in Isaac's Mods menu.
 
 ## Workshop publishing
 

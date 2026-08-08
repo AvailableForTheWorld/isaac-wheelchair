@@ -82,9 +82,6 @@ end
 
 local function rewind()
     if not game:IsPaused() and game:GetNumPlayers() > 0 then
-        if Isaac.RunCallback then
-            Isaac.RunCallback("WHEELCHAIR_PRE_REWIND")
-        end
         Isaac.ExecuteCommand("rewind")
     end
 end
