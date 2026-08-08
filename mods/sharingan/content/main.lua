@@ -678,123 +678,172 @@ local function roomIdFromDescriptor(descriptor)
     return tostring(descriptor.ListIndex)
 end
 
-local function copyKeySet(source)
-    local copy = {}
-    for key, value in pairs(source or {}) do copy[key] = value end
-    return copy
-end
-
-local function copyDamageSourceMap(source)
-    local copy = {}
-    for key, record in pairs(source or {}) do
-        copy[key] = {
-            name = record.name,
-            hits = record.hits or 0,
-            damage = record.damage or 0,
-        }
-    end
-    return copy
-end
-
-local function copyDamageAttributionMap(source)
-    local copy = {}
-    for key, record in pairs(source or {}) do
-        copy[key] = {
-            itemId = record.itemId,
-            name = record.name,
-            damage = record.damage or 0,
-            directDamage = record.directDamage or 0,
-            deltaDamage = record.deltaDamage or 0,
-        }
-    end
-    return copy
-end
-
-local function copyNumberMap(source)
-    local copy = {}
-    for key, value in pairs(source or {}) do copy[key] = tonumber(value) or 0 end
-    return copy
-end
-
-local function captureRoomCombatSnapshot(floor, roomId)
-    runtime.roomCombatSnapshot = {
+local function beginRoomCombatLayer(floor, roomId)
+    -- Cumulative tables are the committed layer. Only changes made in the
+    -- current room live here, so normal room exit commits them by replacing
+    -- this small delta and rewind discards them by subtraction.
+    runtime.roomCombatLayer = {
         floorKey = floor.key,
         roomId = roomId,
-        run = {
-            damageDealt = run.damageDealt,
-            enemiesDamaged = run.enemiesDamaged,
-            enemiesKilled = run.enemiesKilled,
-            playerHits = run.playerHits,
-            damageTaken = run.damageTaken,
-            hurtBy = copyDamageSourceMap(run.hurtBy),
-            damageByItem = copyDamageAttributionMap(run.damageByItem),
-            itemDpsGains = copyNumberMap(run.itemDpsGains),
-            enemyDamagedKeys = copyKeySet(run.enemyDamagedKeys),
-            enemyKilledKeys = copyKeySet(run.enemyKilledKeys),
-        },
-        floor = {
-            damageDealt = floor.combat.damageDealt,
-            enemiesDamaged = floor.combat.enemiesDamaged,
-            enemiesKilled = floor.combat.enemiesKilled,
-            playerHits = floor.combat.playerHits,
-            damageTaken = floor.combat.damageTaken,
-            hurtBy = copyDamageSourceMap(floor.combat.hurtBy),
-            damageByItem = copyDamageAttributionMap(floor.combat.damageByItem),
-            damagedKeys = copyKeySet(floor.combat.damagedKeys),
-            killedKeys = copyKeySet(floor.combat.killedKeys),
-        },
-        lifetime = {
-            damageDealt = persistent.lifetime.damageDealt,
-            enemiesDamaged = persistent.lifetime.enemiesDamaged,
-            enemiesKilled = persistent.lifetime.enemiesKilled,
-            playerHits = persistent.lifetime.playerHits,
-            damageTaken = persistent.lifetime.damageTaken,
-            hurtBy = copyDamageSourceMap(persistent.lifetime.hurtBy),
-            damageByItem = copyDamageAttributionMap(persistent.lifetime.damageByItem),
-        },
+        damageDealt = 0,
+        playerHits = 0,
+        damageTaken = 0,
+        hurtBy = {},
+        damageByItem = {},
+        runEnemiesDamaged = 0,
+        floorEnemiesDamaged = 0,
+        runEnemiesKilled = 0,
+        floorEnemiesKilled = 0,
+        addedRunDamagedKeys = {},
+        addedFloorDamagedKeys = {},
+        addedRunKilledKeys = {},
+        addedFloorKilledKeys = {},
+        itemDpsGainsBefore = {},
     }
 end
 
-local function restoreRoomCombatSnapshot()
-    local snapshot = runtime.roomCombatSnapshot
-    if not snapshot or not run then return false end
-    local floor = run.floors[snapshot.floorKey]
-    if not floor or not floor.combat then return false end
+local function addRoomCombatCounter(field, amount)
+    local layer = runtime.roomCombatLayer
+    if layer then layer[field] = (layer[field] or 0) + amount end
+end
 
-    run.damageDealt = snapshot.run.damageDealt
-    run.enemiesDamaged = snapshot.run.enemiesDamaged
-    run.enemiesKilled = snapshot.run.enemiesKilled
-    run.playerHits = snapshot.run.playerHits
-    run.damageTaken = snapshot.run.damageTaken
-    -- The snapshot is consumed immediately below, so transfer its already
-    -- detached tables instead of allocating and copying every record again.
-    run.hurtBy = snapshot.run.hurtBy or {}
-    run.damageByItem = snapshot.run.damageByItem or {}
-    run.itemDpsGains = snapshot.run.itemDpsGains or {}
-    run.enemyDamagedKeys = snapshot.run.enemyDamagedKeys or {}
-    run.enemyKilledKeys = snapshot.run.enemyKilledKeys or {}
+local function addRoomDamageSource(key, amount)
+    local layer = runtime.roomCombatLayer
+    if not layer then return end
+    local record = layer.hurtBy[key]
+    if not record then
+        record = { hits = 0, damage = 0 }
+        layer.hurtBy[key] = record
+    end
+    record.hits = record.hits + 1
+    record.damage = record.damage + amount
+end
 
-    floor.combat.damageDealt = snapshot.floor.damageDealt
-    floor.combat.enemiesDamaged = snapshot.floor.enemiesDamaged
-    floor.combat.enemiesKilled = snapshot.floor.enemiesKilled
-    floor.combat.playerHits = snapshot.floor.playerHits
-    floor.combat.damageTaken = snapshot.floor.damageTaken
-    floor.combat.hurtBy = snapshot.floor.hurtBy or {}
-    floor.combat.damageByItem = snapshot.floor.damageByItem or {}
-    floor.combat.damagedKeys = snapshot.floor.damagedKeys or {}
-    floor.combat.killedKeys = snapshot.floor.killedKeys or {}
+local function addRoomAttributedDamage(itemId, amount, kind)
+    local layer = runtime.roomCombatLayer
+    if not layer or amount <= 0 then return end
+    local key = itemId and tostring(itemId) or "base"
+    local record = layer.damageByItem[key]
+    if not record then
+        record = { damage = 0, directDamage = 0, deltaDamage = 0 }
+        layer.damageByItem[key] = record
+    end
+    record.damage = record.damage + amount
+    if kind == "delta" then
+        record.deltaDamage = record.deltaDamage + amount
+    else
+        record.directDamage = record.directDamage + amount
+    end
+end
 
-    persistent.lifetime.damageDealt = snapshot.lifetime.damageDealt
-    persistent.lifetime.enemiesDamaged = snapshot.lifetime.enemiesDamaged
-    persistent.lifetime.enemiesKilled = snapshot.lifetime.enemiesKilled
-    persistent.lifetime.playerHits = snapshot.lifetime.playerHits
-    persistent.lifetime.damageTaken = snapshot.lifetime.damageTaken
-    persistent.lifetime.hurtBy = snapshot.lifetime.hurtBy or {}
-    persistent.lifetime.damageByItem = snapshot.lifetime.damageByItem or {}
+local function markRoomCombatKey(collection, key)
+    local layer = runtime.roomCombatLayer
+    if layer then layer[collection][key] = true end
+end
+
+local function rememberRoomItemDpsGain(key)
+    local layer = runtime.roomCombatLayer
+    if not layer or layer.itemDpsGainsBefore[key] ~= nil then return end
+    local value = run.itemDpsGains[key]
+    layer.itemDpsGainsBefore[key] = {
+        existed = value ~= nil,
+        value = value,
+    }
+end
+
+local function subtractRoomDamageSources(target, deltas)
+    for key, delta in pairs(deltas or {}) do
+        local record = target[key]
+        if record then
+            record.hits = math.max(0, (record.hits or 0) - (delta.hits or 0))
+            record.damage = math.max(0, (record.damage or 0) - (delta.damage or 0))
+            if record.hits <= 0 and record.damage <= 0.0001 then
+                target[key] = nil
+            end
+        end
+    end
+end
+
+local function subtractRoomAttributedDamage(target, deltas)
+    for key, delta in pairs(deltas or {}) do
+        local record = target[key]
+        if record then
+            record.damage = math.max(0, (record.damage or 0) - (delta.damage or 0))
+            record.directDamage = math.max(
+                0,
+                (record.directDamage or 0) - (delta.directDamage or 0)
+            )
+            record.deltaDamage = math.max(
+                0,
+                (record.deltaDamage or 0) - (delta.deltaDamage or 0)
+            )
+            if record.damage <= 0.0001 then target[key] = nil end
+        end
+    end
+end
+
+local function subtractRoomCombatScope(target, layer, enemiesDamaged, enemiesKilled)
+    if not target then return end
+    target.damageDealt = math.max(0, (target.damageDealt or 0) - layer.damageDealt)
+    target.playerHits = math.max(0, (target.playerHits or 0) - layer.playerHits)
+    target.damageTaken = math.max(0, (target.damageTaken or 0) - layer.damageTaken)
+    target.enemiesDamaged = math.max(
+        0,
+        (target.enemiesDamaged or 0) - enemiesDamaged
+    )
+    target.enemiesKilled = math.max(0, (target.enemiesKilled or 0) - enemiesKilled)
+    subtractRoomDamageSources(target.hurtBy or {}, layer.hurtBy)
+    subtractRoomAttributedDamage(target.damageByItem or {}, layer.damageByItem)
+end
+
+local function discardRoomCombatLayer()
+    local layer = runtime.roomCombatLayer
+    if not layer or not run then return false end
+    local floor = run.floors[layer.floorKey]
+
+    subtractRoomCombatScope(
+        run,
+        layer,
+        layer.runEnemiesDamaged,
+        layer.runEnemiesKilled
+    )
+    subtractRoomCombatScope(
+        persistent.lifetime,
+        layer,
+        layer.runEnemiesDamaged,
+        layer.runEnemiesKilled
+    )
+    if floor and floor.combat then
+        subtractRoomCombatScope(
+            floor.combat,
+            layer,
+            layer.floorEnemiesDamaged,
+            layer.floorEnemiesKilled
+        )
+    end
+
+    for key in pairs(layer.addedRunDamagedKeys) do
+        run.enemyDamagedKeys[key] = nil
+    end
+    for key in pairs(layer.addedRunKilledKeys) do
+        run.enemyKilledKeys[key] = nil
+    end
+    if floor and floor.combat then
+        for key in pairs(layer.addedFloorDamagedKeys) do
+            floor.combat.damagedKeys[key] = nil
+        end
+        for key in pairs(layer.addedFloorKilledKeys) do
+            floor.combat.killedKeys[key] = nil
+        end
+    end
+    for key, previous in pairs(layer.itemDpsGainsBefore) do
+        run.itemDpsGains[key] = previous.existed and previous.value or nil
+    end
+
+    runtime.roomCombatLayer = nil
     runtime.activeItemWindows = {}
     runtime.pendingDps = {}
     runtime.preItemDps = {}
-    runtime.roomCombatSnapshot = nil
     return true
 end
 
@@ -887,7 +936,7 @@ local function visitCurrentRoom()
 
     scanCurrentRoomGrid(floor, roomRecord)
     runtime.playerResources = {}
-    captureRoomCombatSnapshot(floor, roomId)
+    beginRoomCombatLayer(floor, roomId)
 end
 
 local function classifyPickup(pickup)
@@ -1088,6 +1137,7 @@ local function scanHeldItems(initial, knownOnly)
         local currentCount = newCounts[key] or 0
         previousCount = tonumber(previousCount) or 0
         if currentCount < previousCount and run.itemDpsGains[key] then
+            rememberRoomItemDpsGain(key)
             if currentCount == 0 then
                 run.itemDpsGains[key] = nil
             else
@@ -1116,6 +1166,7 @@ local function finalizeDpsObservations()
             history.afterDpsSum = history.afterDpsSum + afterDps * count
             if gain > 0 then
                 local itemKey = tostring(pending.itemId)
+                rememberRoomItemDpsGain(itemKey)
                 run.itemDpsGains[itemKey] = (run.itemDpsGains[itemKey] or 0)
                     + gain * count
             end
@@ -1329,6 +1380,7 @@ local function addAttributedDamageEverywhere(floor, itemId, amount, kind)
     addAttributedDamage(run.damageByItem, itemId, amount, kind)
     addAttributedDamage(floor.combat.damageByItem, itemId, amount, kind)
     addAttributedDamage(persistent.lifetime.damageByItem, itemId, amount, kind)
+    addRoomAttributedDamage(itemId, amount, kind)
 end
 
 local function attributePlayerDamage(floor, source, player, amount)
@@ -1743,6 +1795,21 @@ function BeginnerLedger:OnNewRoom()
         Isaac.DebugString("[Sharingan] " .. floorSummary(previousFloor))
     end
     runtime.lastFloorKey = newFloorKey
+
+    -- Isaac.RunCallback is synchronous. When Wheelchair has just requested a
+    -- rewind, keep this transition callback constant-time and let OnUpdate
+    -- discard the current-room delta and start the returned room's layer.
+    local deferredRewind = runtime.deferredRewind
+    if deferredRewind then
+        deferredRewind.roomChanged = true
+        local descriptor = game:GetLevel():GetCurrentRoomDesc()
+        if descriptor and descriptor.Data then
+            runtime.currentRoomId = roomIdFromDescriptor(descriptor)
+        end
+        runtime.pendingPickups = {}
+        return
+    end
+
     visitCurrentRoom()
 end
 
@@ -1806,6 +1873,9 @@ function BeginnerLedger:OnEntityTakeDamage(entity, amount, flags, source)
             floor.combat.playerHits = floor.combat.playerHits + 1
             floor.combat.damageTaken = floor.combat.damageTaken + amount
             addDamageSource(floor.combat.hurtBy, sourceKey, sourceName, amount)
+            addRoomCombatCounter("playerHits", 1)
+            addRoomCombatCounter("damageTaken", amount)
+            addRoomDamageSource(sourceKey, amount)
         end
         return nil
     end
@@ -1821,16 +1891,21 @@ function BeginnerLedger:OnEntityTakeDamage(entity, amount, flags, source)
     run.damageDealt = run.damageDealt + amount
     floor.combat.damageDealt = floor.combat.damageDealt + amount
     persistent.lifetime.damageDealt = persistent.lifetime.damageDealt + amount
+    addRoomCombatCounter("damageDealt", amount)
     attributePlayerDamage(floor, source, sourcePlayer, amount)
 
     if not run.enemyDamagedKeys[key] then
         run.enemyDamagedKeys[key] = true
         run.enemiesDamaged = run.enemiesDamaged + 1
         persistent.lifetime.enemiesDamaged = persistent.lifetime.enemiesDamaged + 1
+        addRoomCombatCounter("runEnemiesDamaged", 1)
+        markRoomCombatKey("addedRunDamagedKeys", key)
     end
     if not floor.combat.damagedKeys[key] then
         floor.combat.damagedKeys[key] = true
         floor.combat.enemiesDamaged = floor.combat.enemiesDamaged + 1
+        addRoomCombatCounter("floorEnemiesDamaged", 1)
+        markRoomCombatKey("addedFloorDamagedKeys", key)
     end
 
     return nil
@@ -1843,11 +1918,15 @@ function BeginnerLedger:OnEntityKill(entity)
     run.enemyKilledKeys[key] = true
     run.enemiesKilled = run.enemiesKilled + 1
     persistent.lifetime.enemiesKilled = persistent.lifetime.enemiesKilled + 1
+    addRoomCombatCounter("runEnemiesKilled", 1)
+    markRoomCombatKey("addedRunKilledKeys", key)
 
     local floor = currentFloor()
     if not floor.combat.killedKeys[key] then
         floor.combat.killedKeys[key] = true
         floor.combat.enemiesKilled = floor.combat.enemiesKilled + 1
+        addRoomCombatCounter("floorEnemiesKilled", 1)
+        markRoomCombatKey("addedFloorKilledKeys", key)
     end
 end
 
@@ -1867,9 +1946,27 @@ function BeginnerLedger:OnUseItem(itemId, rng, player)
     return nil
 end
 
+local function updateDeferredRewind(frame)
+    local deferredRewind = runtime.deferredRewind
+    if deferredRewind and frame > deferredRewind.requestedFrame then
+        runtime.deferredRewind = nil
+        if deferredRewind.roomChanged then
+            if discardRoomCombatLayer() then
+                Isaac.DebugString(
+                    "[Sharingan] Discarded the rewound room's combat layer."
+                )
+            end
+            -- The native transition has already completed. Initialize the
+            -- returned room now so its first combat frame belongs to a layer.
+            visitCurrentRoom()
+        end
+    end
+end
+
 function BeginnerLedger:OnUpdate()
     if not run or game:GetNumPlayers() == 0 then return end
     local frame = Isaac.GetFrameCount()
+    updateDeferredRewind(frame)
     updateOverlayControls()
     updateRoomState()
     updatePendingPickups()
@@ -1924,14 +2021,21 @@ end
 
 function BeginnerLedger:OnWheelchairPreRewind()
     local frame = Isaac.GetFrameCount()
+    if runtime.deferredRewind then return end
+
+    -- Custom callbacks run synchronously on Isaac's game thread. This callback
+    -- therefore records only an O(1) signal. The current room's small delta is
+    -- discarded later, after OnNewRoom confirms that Isaac actually rewound.
+    runtime.deferredRewind = {
+        requestedFrame = frame,
+        roomChanged = false,
+    }
+
     -- Rewind can temporarily change collectible totals. During the short
     -- restoration window, reconcile only items already observed this run and
     -- postpone periodic JSON serialization away from the transition frame.
     runtime.rewindKnownItemScanUntilFrame = frame + 30
     runtime.lastSaveFrame = frame
-    if restoreRoomCombatSnapshot() then
-        Isaac.DebugString("[Sharingan] Restored combat counters to room-entry state before rewind.")
-    end
 end
 
 local function renderLine(text, x, y, color, style)

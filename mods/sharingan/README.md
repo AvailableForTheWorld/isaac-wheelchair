@@ -51,7 +51,7 @@ Raw DPS is estimated as `Damage × 30 / (MaxFireDelay + 1)`. It does not model m
 
 When **Wheelchair Emergency Rewind** triggers Isaac's native rewind, Sharingan restores all combat counters, item-damage attribution, and the damage-source ranking to the values captured when the current room was entered. Damage, kills, player hits, received-heart totals, item shares, and attacker counts from the discarded room attempt are removed.
 
-The room-entry snapshot is restored in memory without re-copying its tables. Sharingan also defers its periodic JSON save and limits inventory reconciliation during the rewind transition, avoiding a full-run serialization and full collectible scan on the critical transition frame.
+Sharingan uses two combat layers: cumulative committed totals and one small current-room delta. Entering a normal room commits the previous delta implicitly and starts a new one. Wheelchair's synchronous pre-rewind notification sets only a boolean-style pending signal; on the first update after Isaac confirms the room transition, Sharingan subtracts and discards the abandoned room delta and starts the returned room's layer. No historical combat tables are copied or rebuilt during the native transition. Periodic JSON saving and full inventory reconciliation are also kept away from the critical rewind frame.
 
 This integration applies to rewinds triggered through Wheelchair. Manually running Isaac's console command bypasses Wheelchair's pre-rewind notification.
 
