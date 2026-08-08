@@ -51,11 +51,13 @@ Raw DPS is estimated as `Damage × 30 / (MaxFireDelay + 1)`. It does not model m
 
 When **Wheelchair Emergency Rewind** triggers Isaac's native rewind, Sharingan restores all combat counters, item-damage attribution, and the damage-source ranking to the values captured when the current room was entered. Damage, kills, player hits, received-heart totals, item shares, and attacker counts from the discarded room attempt are removed.
 
+The room-entry snapshot is restored in memory without re-copying its tables. Sharingan also defers its periodic JSON save and limits inventory reconciliation during the rewind transition, avoiding a full-run serialization and full collectible scan on the critical transition frame.
+
 This integration applies to rewinds triggered through Wheelchair. Manually running Isaac's console command bypasses Wheelchair's pre-rewind notification.
 
 ## Complete, shape-aware floor map
 
-Opening the overlay, or switching Left, draws every room descriptor generated for the current floor, including rooms that the player has not visited. The map is read-only; mouse marking and numeric marker selection have been removed. The renderer uses each descriptor's real `RoomShape`: vertical 1×2 rooms occupy two cells, horizontal 2×1 rooms occupy two cells, 2×2 rooms occupy four cells, and each L-room leaves the correct corner empty. A large or L-shaped room has one connected outer border rather than several separate `[]` cells. A special-room digit appears only once inside that border. The legend is ranked from most generally practical to least:
+Opening the overlay, or switching Left, draws every room descriptor generated for the current floor, including rooms that the player has not visited. The map is read-only; mouse marking and numeric marker selection have been removed. The renderer uses each descriptor's real `RoomShape`: vertical 1×2 rooms occupy two cells, horizontal 2×1 rooms occupy two cells, 2×2 rooms occupy four cells, and each L-room leaves the correct corner empty. A large or L-shaped room has one connected outer border rather than several separate `[]` cells. A special-room digit or map-only Boss marker appears only once inside that border. The legend is ranked from most generally practical to least:
 
 1. Secret Room
 2. Super Secret Room
@@ -78,7 +80,7 @@ Opening the overlay, or switching Left, draws every room descriptor generated fo
 19. Clean Bedroom
 20. Dirty Bedroom
 
-Each unvisited special-room type has a saturated legend color. As soon as that room is visited, its map outline and digit turn neutral gray. An outlined cell is another generated room, `@` is the current non-special room, and `.` is an empty grid cell. Generated special-room numbers are refreshed from the floor data. Crawl Spaces, Black Markets, and other rooms represented by Isaac with negative off-grid indices have no physical 13×13 map cell, so the mod does not assign them a false position.
+Boss Rooms are marked directly on the map with a black `B`; they are intentionally omitted from the numbered right-side legend. Each unvisited special-room type has a saturated color. As soon as that room is visited, its map outline and digit or marker turn neutral gray. An outlined cell is another generated room, `@` is the current non-special room, and `.` is an empty grid cell. Generated special-room numbers are refreshed from the floor data. Crawl Spaces, Black Markets, and other rooms represented by Isaac with negative off-grid indices have no physical 13×13 map cell, so the mod does not assign them a false position.
 
 ## Persistence
 

@@ -188,6 +188,13 @@ for _, special in ipairs(SPECIAL_ROOMS) do
     SPECIAL_ROOM_BY_TYPE[special.roomType] = special
 end
 
+-- Boss Rooms are useful on the map but deliberately stay outside SPECIAL_ROOMS,
+-- so they do not consume a ranked digit or appear in the right-side legend.
+local BOSS_ROOM_MAP_MARKER = {
+    code = "B",
+    color = { 0.00, 0.00, 0.00 },
+}
+
 -- Slot variants are not exposed as a vanilla Lua enum.
 local SLOT_INFO = {
     [1] = { nameKey = "machine.slot", cost = "coin" },
@@ -636,6 +643,7 @@ local function refreshFloorLayout(floor)
     floor.special = newSpecialCounters()
     floor.generatedRooms = 0
     local rooms = game:GetLevel():GetRooms()
+    floor.layoutSize = rooms.Size
     for index = 0, rooms.Size - 1 do
         local descriptor = rooms:Get(index)
         if descriptor and descriptor.Data then
@@ -758,29 +766,31 @@ local function restoreRoomCombatSnapshot()
     run.enemiesKilled = snapshot.run.enemiesKilled
     run.playerHits = snapshot.run.playerHits
     run.damageTaken = snapshot.run.damageTaken
-    run.hurtBy = copyDamageSourceMap(snapshot.run.hurtBy)
-    run.damageByItem = copyDamageAttributionMap(snapshot.run.damageByItem)
-    run.itemDpsGains = copyNumberMap(snapshot.run.itemDpsGains)
-    run.enemyDamagedKeys = copyKeySet(snapshot.run.enemyDamagedKeys)
-    run.enemyKilledKeys = copyKeySet(snapshot.run.enemyKilledKeys)
+    -- The snapshot is consumed immediately below, so transfer its already
+    -- detached tables instead of allocating and copying every record again.
+    run.hurtBy = snapshot.run.hurtBy or {}
+    run.damageByItem = snapshot.run.damageByItem or {}
+    run.itemDpsGains = snapshot.run.itemDpsGains or {}
+    run.enemyDamagedKeys = snapshot.run.enemyDamagedKeys or {}
+    run.enemyKilledKeys = snapshot.run.enemyKilledKeys or {}
 
     floor.combat.damageDealt = snapshot.floor.damageDealt
     floor.combat.enemiesDamaged = snapshot.floor.enemiesDamaged
     floor.combat.enemiesKilled = snapshot.floor.enemiesKilled
     floor.combat.playerHits = snapshot.floor.playerHits
     floor.combat.damageTaken = snapshot.floor.damageTaken
-    floor.combat.hurtBy = copyDamageSourceMap(snapshot.floor.hurtBy)
-    floor.combat.damageByItem = copyDamageAttributionMap(snapshot.floor.damageByItem)
-    floor.combat.damagedKeys = copyKeySet(snapshot.floor.damagedKeys)
-    floor.combat.killedKeys = copyKeySet(snapshot.floor.killedKeys)
+    floor.combat.hurtBy = snapshot.floor.hurtBy or {}
+    floor.combat.damageByItem = snapshot.floor.damageByItem or {}
+    floor.combat.damagedKeys = snapshot.floor.damagedKeys or {}
+    floor.combat.killedKeys = snapshot.floor.killedKeys or {}
 
     persistent.lifetime.damageDealt = snapshot.lifetime.damageDealt
     persistent.lifetime.enemiesDamaged = snapshot.lifetime.enemiesDamaged
     persistent.lifetime.enemiesKilled = snapshot.lifetime.enemiesKilled
     persistent.lifetime.playerHits = snapshot.lifetime.playerHits
     persistent.lifetime.damageTaken = snapshot.lifetime.damageTaken
-    persistent.lifetime.hurtBy = copyDamageSourceMap(snapshot.lifetime.hurtBy)
-    persistent.lifetime.damageByItem = copyDamageAttributionMap(snapshot.lifetime.damageByItem)
+    persistent.lifetime.hurtBy = snapshot.lifetime.hurtBy or {}
+    persistent.lifetime.damageByItem = snapshot.lifetime.damageByItem or {}
     runtime.activeItemWindows = {}
     runtime.pendingDps = {}
     runtime.preItemDps = {}
@@ -828,7 +838,10 @@ end
 local function visitCurrentRoom()
     if not run or game:GetNumPlayers() == 0 then return end
     local floor = currentFloor()
-    refreshFloorLayout(floor)
+    local rooms = game:GetLevel():GetRooms()
+    if floor.layoutSize ~= rooms.Size then
+        refreshFloorLayout(floor)
+    end
 
     local descriptor = game:GetLevel():GetCurrentRoomDesc()
     if not descriptor or not descriptor.Data then return end
@@ -875,7 +888,6 @@ local function visitCurrentRoom()
     scanCurrentRoomGrid(floor, roomRecord)
     runtime.playerResources = {}
     captureRoomCombatSnapshot(floor, roomId)
-    savePersistentData()
 end
 
 local function classifyPickup(pickup)
@@ -1036,7 +1048,7 @@ local function queueDpsObservation(itemId, count)
     runtime.preItemDps[key] = nil
 end
 
-local function scanHeldItems(initial)
+local function scanHeldItems(initial, knownOnly)
     local newCounts = {}
     local ownedItemByNormalizedName = {}
     local function scanItem(itemId)
@@ -1056,13 +1068,20 @@ local function scanHeldItems(initial)
         end
     end
 
-    for itemId = 1, MAX_COLLECTIBLE_ID - 1 do
-        scanItem(itemId)
-    end
-    for key in pairs(run.knownItemIds) do
-        local itemId = tonumber(key)
-        if itemId and itemId >= MAX_COLLECTIBLE_ID then
+    if knownOnly then
+        for key in pairs(run.knownItemIds) do
+            local itemId = tonumber(key)
+            if itemId then scanItem(itemId) end
+        end
+    else
+        for itemId = 1, MAX_COLLECTIBLE_ID - 1 do
             scanItem(itemId)
+        end
+        for key in pairs(run.knownItemIds) do
+            local itemId = tonumber(key)
+            if itemId and itemId >= MAX_COLLECTIBLE_ID then
+                scanItem(itemId)
+            end
         end
     end
     for key, previousCount in pairs(run.heldItemCounts) do
@@ -1850,26 +1869,34 @@ end
 
 function BeginnerLedger:OnUpdate()
     if not run or game:GetNumPlayers() == 0 then return end
+    local frame = Isaac.GetFrameCount()
     updateOverlayControls()
     updateRoomState()
     updatePendingPickups()
     local collectibleTotal = totalCollectibleCount()
     local forceItemScan = runtime.itemScanDueFrame ~= nil
-        and Isaac.GetFrameCount() >= runtime.itemScanDueFrame
+        and frame >= runtime.itemScanDueFrame
+    local rewindKnownOnly = runtime.rewindKnownItemScanUntilFrame ~= nil
+        and frame <= runtime.rewindKnownItemScanUntilFrame
     if runtime.lastCollectibleTotal == nil then
         scanHeldItems(true)
         runtime.lastCollectibleTotal = collectibleTotal
     elseif collectibleTotal ~= runtime.lastCollectibleTotal or forceItemScan then
-        scanHeldItems(false)
+        scanHeldItems(false, rewindKnownOnly)
         runtime.lastCollectibleTotal = collectibleTotal
         runtime.itemScanDueFrame = nil
+        runtime.rewindKnownItemScanUntilFrame = nil
+    end
+    if runtime.rewindKnownItemScanUntilFrame ~= nil
+        and frame > runtime.rewindKnownItemScanUntilFrame then
+        runtime.rewindKnownItemScanUntilFrame = nil
     end
     finalizeDpsObservations()
     updateActiveItemWindows()
     run.lastDps = estimatedRawDps()
 
-    if Isaac.GetFrameCount() - runtime.lastSaveFrame >= SAVE_INTERVAL then
-        runtime.lastSaveFrame = Isaac.GetFrameCount()
+    if frame - runtime.lastSaveFrame >= SAVE_INTERVAL then
+        runtime.lastSaveFrame = frame
         savePersistentData()
     end
 end
@@ -1896,6 +1923,12 @@ function BeginnerLedger:OnPreGameExit()
 end
 
 function BeginnerLedger:OnWheelchairPreRewind()
+    local frame = Isaac.GetFrameCount()
+    -- Rewind can temporarily change collectible totals. During the short
+    -- restoration window, reconcile only items already observed this run and
+    -- postpone periodic JSON serialization away from the transition frame.
+    runtime.rewindKnownItemScanUntilFrame = frame + 30
+    runtime.lastSaveFrame = frame
     if restoreRoomCombatSnapshot() then
         Isaac.DebugString("[Sharingan] Restored combat counters to room-entry state before rewind.")
     end
@@ -2296,6 +2329,9 @@ local function renderFloorMap()
     local generatedRooms = {}
     for roomId, mapRoom in pairs(floor.mapRooms) do
         local specialRoom = SPECIAL_ROOM_BY_TYPE[mapRoom.roomType]
+        if not specialRoom and mapRoom.roomType == RoomType.ROOM_BOSS then
+            specialRoom = BOSS_ROOM_MAP_MARKER
+        end
         local visited = mapRoom.visited == true
         local roomData = {
             roomId = roomId,
@@ -2349,8 +2385,8 @@ local function renderFloorMap()
         renderRoomOutline(roomData, originX, originY)
     end
 
-    -- Automatic special-room digits and the current-room indicator appear once
-    -- at the descriptor anchor, even when the room occupies several map cells.
+    -- Automatic special-room digits, the map-only Boss marker, and the current
+    -- room indicator appear once even when a room occupies several map cells.
     for _, roomData in ipairs(generatedRooms) do
         local specialRoom = roomData.specialRoom
         local x = roomData.anchor and originX
