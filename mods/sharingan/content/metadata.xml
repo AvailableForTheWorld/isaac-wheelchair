@@ -5,19 +5,23 @@
     <id>3779320405</id>
     <description>See the whole floor. See where every point of damage comes from.
 
-    Sharingan provides a complete generated-floor map with ranked special-room colors and a
-    compact combat report. It records the top five damage-dealing items, gives stat-up items only
-    their measured DPS-delta share, and never counts the same damage twice. It also ranks what hurt
-    the player and restores current-room combat records when Wheelchair Emergency Rewind is used.
+        Sharingan provides a complete generated-floor map with ranked special-room colors and a
+        compact combat report. It records the top five damage-dealing items, gives stat-up items
+        only
+        their measured DPS-delta share, and never counts the same damage twice. It also ranks what
+        hurt
+        the player and restores current-room combat records when Wheelchair Emergency Rewind is
+        used.
 
-    MCM-configurable shortcuts. Defaults: F6 / Left Stick click. The map opens first;
-    Left selects Map and Right selects Combat. Unvisited special rooms are vivid; visited rooms turn gray.
+        MCM-configurable shortcuts. Defaults: F6 / Left Stick click. The map opens first;
+        Left selects Map and Right selects Combat. Unvisited special rooms are vivid; visited rooms
+        turn gray.
 
-    写轮眼让你看清整层地图，也看懂伤害来源。显示完整生成地图与特殊房间，记录本局伤害最高的五件道具；
-    属性道具只计算实际 DPS 增量，同一份伤害不会重复归属。支持 MCM 键盘/手柄快捷键，并与紧急回溯联动。
-    默认 F6 / 按下左摇杆；左键查看地图，右键查看战斗报告。</description>
+        写轮眼让你看清整层地图，也看懂伤害来源。显示完整生成地图与特殊房间，记录本局伤害最高的五件道具；
+        属性道具只计算实际 DPS 增量，同一份伤害不会重复归属。支持 MCM 键盘/手柄快捷键，并与紧急回溯联动。
+        默认 F6 / 按下左摇杆；左键查看地图，右键查看战斗报告。</description>
     <version>1.1.1</version>
     <visibility>Public</visibility>
-    <tag id="Lua"/>
-    <tag id="Tweaks"/>
+    <tag id="Lua" />
+    <tag id="Tweaks" />
 </metadata>
