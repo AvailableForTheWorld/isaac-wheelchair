@@ -31,6 +31,10 @@ local LEGEND_ROW_HEIGHT = 13
 local VISITED_SPECIAL_ROOM_COLOR = { 0.48, 0.50, 0.52 }
 local UNVISITED_ROOM_FILL_COLOR = { 0.82, 0.84, 0.86, 1.00 }
 local VISITED_ROOM_FILL_COLOR = { 0.26, 0.28, 0.30, 1.00 }
+local ZERO_VECTOR = Vector(0, 0)
+local DEFAULT_SPRITE_COLOR = Color(1, 1, 1, 1, 0, 0, 0)
+local ROOM_FILL_UNVISITED_SPRITE_COLOR = Color(0.82, 0.84, 0.86, 1, 0, 0, 0)
+local ROOM_FILL_VISITED_SPRITE_COLOR = Color(0.26, 0.28, 0.30, 1, 0, 0, 0)
 
 local DEFAULT_KEYBOARD_SHORTCUT = Keyboard.KEY_F6
 local DEFAULT_CONTROLLER_SHORTCUT = 10 -- Controller.STICK_LEFT in MCM
@@ -198,6 +202,8 @@ local function newRunState(seed)
         seed = seed,
         floors = {},
         currentFloorKey = nil,
+        spiderModGranted = false,
+        spiderModGrantVersion = 1,
     }
 end
 
@@ -265,6 +271,15 @@ local function normalizePersistentData(data)
             migratedRun.floors[floorKeyValue] = migrateFloorState(floorKeyValue, floor)
         end
         migratedRun.currentFloorKey = data.activeRun.currentFloorKey
+        -- Local development builds wrote spiderModGranted=false after silently
+        -- granting the item, so a continued run could mistake that old copy for
+        -- a genuine pickup. This legacy field/version combination was never in
+        -- a published build; migrate it once and suppress the supplied robot.
+        local legacySpiderModGrant = data.activeRun.spiderModGranted ~= nil
+            and data.activeRun.spiderModGrantVersion == nil
+        migratedRun.spiderModGranted = legacySpiderModGrant
+            or data.activeRun.spiderModGranted == true
+        migratedRun.spiderModGrantVersion = 1
         normalized.activeRun = migratedRun
     end
     return normalized
@@ -305,6 +320,8 @@ end
 
 local function ensureRunTables()
     run.floors = run.floors or {}
+    run.spiderModGranted = run.spiderModGranted == true
+    run.spiderModGrantVersion = 1
     for key, floor in pairs(run.floors) do
         run.floors[tostring(key)] = migrateFloorState(tostring(key), floor)
         if tostring(key) ~= key then run.floors[key] = nil end
@@ -481,6 +498,59 @@ local function updateOverlayControls()
     end
 end
 
+local function synchronizeNativeSpiderMod()
+    if not run or game:GetNumPlayers() == 0 then return end
+    local player = Isaac.GetPlayer(0)
+    local itemCount = player:GetCollectibleNum(
+        CollectibleType.COLLECTIBLE_SPIDER_MOD,
+        true
+    )
+
+    if itemCount == 0 then
+        -- FirstTimePickingUp=false grants the real passive immediately without
+        -- a pickup animation or transformation progress. Isaac then owns all
+        -- Spider Mod rendering and familiar behavior.
+        -- Set the ownership marker first because the familiar may initialize
+        -- synchronously inside AddCollectible.
+        run.spiderModGranted = true
+        player:AddCollectible(
+            CollectibleType.COLLECTIBLE_SPIDER_MOD,
+            0,
+            false
+        )
+    elseif run.spiderModGranted and itemCount > 1 then
+        -- The player has now collected a genuine copy. Remove the one supplied
+        -- by Sharingan without reducing the transformation progress earned by
+        -- the real pickup. One native Spider Mod remains and owns the display.
+        player:RemoveCollectible(
+            CollectibleType.COLLECTIBLE_SPIDER_MOD,
+            true,
+            ActiveSlot.SLOT_PRIMARY,
+            false
+        )
+        run.spiderModGranted = false
+        -- The mod-supplied familiar is suppressed. Re-evaluate once so the
+        -- genuinely collected Spider Mod can create its own visible familiar.
+        player:AddCacheFlags(CacheFlag.CACHE_FAMILIARS)
+        player:EvaluateItems()
+        savePersistentData()
+    end
+end
+
+function BeginnerLedger:OnSpiderModFamiliarUpdate(familiar)
+    if not run or not run.spiderModGranted or game:GetNumPlayers() == 0 then
+        return
+    end
+    local owner = familiar.Player
+    if owner and GetPtrHash(owner) == GetPtrHash(Isaac.GetPlayer(0)) then
+        -- Native health bars are based on Spider Mod ownership. Removing the
+        -- supplied familiar hides the robot and prevents its contact/drop
+        -- behavior while leaving Isaac's native health display active.
+        familiar.Visible = false
+        familiar:Remove()
+    end
+end
+
 function BeginnerLedger:OnGameStarted(isContinued)
     loadPersistentData()
     local seed = game:GetSeeds():GetStartSeed()
@@ -494,6 +564,7 @@ function BeginnerLedger:OnGameStarted(isContinued)
     resetRuntime()
     runtime.lastFloorKey = floorKey()
     visitCurrentRoom()
+    synchronizeNativeSpiderMod()
     -- This first schema-3 save permanently drops legacy combat history.
     savePersistentData()
 end
@@ -513,6 +584,7 @@ end
 
 function BeginnerLedger:OnUpdate()
     if not run or game:GetNumPlayers() == 0 then return end
+    synchronizeNativeSpiderMod()
     updateOverlayControls()
 end
 
@@ -721,31 +793,36 @@ local function renderRoomOutline(roomData, originX, originY)
     end
 end
 
+local function renderSolidRectangle(x, y, width, height, color)
+    if width <= 0 or height <= 0 then return end
+    ROOM_FILL_SPRITE.Color = color
+    ROOM_FILL_SPRITE.Scale = Vector(width, height)
+    ROOM_FILL_SPRITE:Render(Vector(x, y), ZERO_VECTOR, ZERO_VECTOR)
+end
+
 -- Fill only the cells that belong to the room's real footprint. This makes
 -- empty corners in L rooms visibly empty while preserving one connected
 -- outline around large rooms. Scaling a solid one-pixel sprite to the cell keeps
 -- the fill inside that cell instead of spilling into an adjacent empty space.
 local function renderRoomFill(roomData, originX, originY)
     local fillColor = roomData.visited
-        and VISITED_ROOM_FILL_COLOR or UNVISITED_ROOM_FILL_COLOR
-    ROOM_FILL_SPRITE.Color = Color(
-        fillColor[1], fillColor[2], fillColor[3], fillColor[4] or 1,
-        0, 0, 0
-    )
-    ROOM_FILL_SPRITE.Scale = Vector(MAP_CELL_SIZE - 2, MAP_CELL_SIZE - 2)
+        and ROOM_FILL_VISITED_SPRITE_COLOR
+        or ROOM_FILL_UNVISITED_SPRITE_COLOR
 
     for _, grid in ipairs(roomData.grids) do
         local x = originX + (grid % MAP_COLUMNS) * MAP_CELL_SIZE + 1
         local y = originY + math.floor(grid / MAP_COLUMNS) * MAP_CELL_SIZE + 1
-        ROOM_FILL_SPRITE:Render(
-            Vector(math.floor(x), math.floor(y)),
-            Vector(0, 0),
-            Vector(0, 0)
+        renderSolidRectangle(
+            math.floor(x),
+            math.floor(y),
+            MAP_CELL_SIZE - 2,
+            MAP_CELL_SIZE - 2,
+            fillColor
         )
     end
 
     ROOM_FILL_SPRITE.Scale = Vector(1, 1)
-    ROOM_FILL_SPRITE.Color = Color(1, 1, 1, 1, 0, 0, 0)
+    ROOM_FILL_SPRITE.Color = DEFAULT_SPRITE_COLOR
 end
 
 local function renderMapCellLabel(text, cellX, cellY, color)
@@ -868,3 +945,8 @@ BeginnerLedger:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, BeginnerLedger.OnNewRo
 BeginnerLedger:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, BeginnerLedger.OnNewLevel)
 BeginnerLedger:AddCallback(ModCallbacks.MC_POST_UPDATE, BeginnerLedger.OnUpdate)
 BeginnerLedger:AddCallback(ModCallbacks.MC_POST_RENDER, BeginnerLedger.OnRender)
+BeginnerLedger:AddCallback(
+    ModCallbacks.MC_FAMILIAR_UPDATE,
+    BeginnerLedger.OnSpiderModFamiliarUpdate,
+    FamiliarVariant.SPIDER_MOD
+)

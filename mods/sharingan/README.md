@@ -2,7 +2,7 @@
 
 ![Sharingan floor-map cover](assets/workshop-cover.png)
 
-Sharingan is now a focused, read-only floor-map overlay for The Binding of Isaac: Repentance+. It displays the complete generated floor and identifies special rooms without tracking combat, pickups, items, DPS, machines, or player damage.
+Sharingan is now a focused, read-only floor-map and enemy-health overlay for The Binding of Isaac: Repentance+. It displays the complete generated floor, identifies special rooms, and shows health bars above active enemies without tracking combat history, pickups, items, DPS, machines, or player damage.
 
 ## Interface and controls
 
@@ -13,6 +13,10 @@ Sharingan is now a focused, read-only floor-map overlay for The Binding of Isaac
 - The map does not pause or filter normal gameplay input.
 
 There is no Combat page and no Left/Right page navigation.
+
+## Monster health bars
+
+At the start or continuation of a run, Sharingan silently grants the main player the real Spider Mod collectible when it is not already owned. Isaac therefore provides Spider Mod's exact native enemy health bars and damage numbers. Sharingan immediately removes the robot familiar created by its supplied copy, so that robot is not rendered and cannot apply its contact effects or room-clear drops. The internal grant has no pickup animation and does not add transformation progress, though it can still appear in item-list mods because native Spider Mod ownership is required for the native display. If the player later collects a genuine Spider Mod, Sharingan removes its supplied copy without reducing the real pickup's transformation progress; the player's genuine robot and native display then work normally.
 
 ## Complete, shape-aware floor map
 
@@ -45,7 +49,7 @@ Boss Rooms are marked directly on the map with a black `B` and are omitted from 
 
 ## Performance and persistence
 
-Sharingan registers no combat, damage, kill, pickup, item-use, pedestal, or gameplay-input callbacks. Its per-frame update only checks the configurable overlay shortcut. Room entry only records the current room ID and refreshes the small generated-floor descriptor list when its size changes.
+Sharingan registers no damage, kill, NPC-render, pickup, item-use, pedestal, or gameplay-input callbacks. Enemy health information is rendered entirely by Isaac's native Spider Mod behavior. Its per-frame update only checks the configurable overlay shortcut. Room entry only records the current room ID and refreshes the small generated-floor descriptor list when its size changes.
 
 Save schema 3 retains only the overlay preference and floor-map visit state. Loading this version migrates an older save and permanently drops all legacy combat and statistical history on the next save. Sharingan does not read or modify Steam userdata or Isaac's persistent game-save files.
 
