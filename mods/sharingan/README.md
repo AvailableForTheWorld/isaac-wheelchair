@@ -16,7 +16,7 @@ There is no Combat page and no Left/Right page navigation.
 
 ## Complete, shape-aware floor map
 
-Opening the overlay draws every room descriptor generated for the current floor, including rooms that the player has not visited. The renderer uses each descriptor's real `RoomShape`: vertical 1×2 rooms occupy two cells, horizontal 2×1 rooms occupy two cells, 2×2 rooms occupy four cells, and each L-room leaves the correct corner empty. A large or L-shaped room has one connected outer border. A special-room digit or map-only Boss marker appears only once inside that border.
+Opening the overlay draws every room descriptor generated for the current floor, including rooms that the player has not visited. The renderer uses each descriptor's real `RoomShape`: vertical 1×2 rooms occupy two cells, horizontal 2×1 rooms occupy two cells, 2×2 rooms occupy four cells, and each L-room leaves the correct corner empty. Every real footprint cell is filled, while a large or L-shaped room keeps one connected outer border. A special-room digit or map-only Boss marker appears only once inside that border.
 
 The legend is ranked from most generally practical to least:
 
@@ -41,7 +41,7 @@ The legend is ranked from most generally practical to least:
 19. Clean Bedroom
 20. Dirty Bedroom
 
-Boss Rooms are marked directly on the map with a black `B` and are omitted from the numbered legend. Unvisited special rooms use saturated colors. A marker turns neutral gray only after Sharingan observes the player physically entering that room. An outlined cell is another generated room, `@` is the current non-special room, and `.` is an empty grid cell. Off-grid rooms such as Crawl Spaces and Black Markets are not assigned false 13×13 map positions.
+Boss Rooms are marked directly on the map with a black `B` and are omitted from the numbered legend. Unvisited rooms have a light gray-white interior, while a room becomes dark gray only after Sharingan observes the player physically entering it. Unvisited special rooms keep saturated borders and digits; visited special markers become neutral gray. `@` is the current non-special room, and `.` is an empty grid cell. Off-grid rooms such as Crawl Spaces and Black Markets are not assigned false 13×13 map positions.
 
 ## Performance and persistence
 

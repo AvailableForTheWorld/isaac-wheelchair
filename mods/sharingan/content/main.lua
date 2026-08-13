@@ -8,6 +8,10 @@ local UI_FONTS = { en = { body = Font(), small = Font() } }
 UI_FONTS.en.bodyLoaded = UI_FONTS.en.body:Load("font/teammeatex/teammeatex12.fnt")
 UI_FONTS.en.smallLoaded = UI_FONTS.en.small:Load("font/teammeatex/teammeatex10.fnt")
 
+local ROOM_FILL_SPRITE = Sprite()
+ROOM_FILL_SPRITE:Load("gfx/ui/sharingan_room_fill.anm2", true)
+ROOM_FILL_SPRITE:SetFrame("Fill", 0)
+
 local function currentFonts()
     return UI_FONTS[I18N.GetLanguage()] or UI_FONTS.en
 end
@@ -25,6 +29,8 @@ local LEGEND_ROWS_PER_COLUMN = 10
 local LEGEND_COLUMN_WIDTH = 86
 local LEGEND_ROW_HEIGHT = 13
 local VISITED_SPECIAL_ROOM_COLOR = { 0.48, 0.50, 0.52 }
+local UNVISITED_ROOM_FILL_COLOR = { 0.82, 0.84, 0.86, 1.00 }
+local VISITED_ROOM_FILL_COLOR = { 0.26, 0.28, 0.30, 1.00 }
 
 local DEFAULT_KEYBOARD_SHORTCUT = Keyboard.KEY_F6
 local DEFAULT_CONTROLLER_SHORTCUT = 10 -- Controller.STICK_LEFT in MCM
@@ -715,6 +721,33 @@ local function renderRoomOutline(roomData, originX, originY)
     end
 end
 
+-- Fill only the cells that belong to the room's real footprint. This makes
+-- empty corners in L rooms visibly empty while preserving one connected
+-- outline around large rooms. Scaling a solid one-pixel sprite to the cell keeps
+-- the fill inside that cell instead of spilling into an adjacent empty space.
+local function renderRoomFill(roomData, originX, originY)
+    local fillColor = roomData.visited
+        and VISITED_ROOM_FILL_COLOR or UNVISITED_ROOM_FILL_COLOR
+    ROOM_FILL_SPRITE.Color = Color(
+        fillColor[1], fillColor[2], fillColor[3], fillColor[4] or 1,
+        0, 0, 0
+    )
+    ROOM_FILL_SPRITE.Scale = Vector(MAP_CELL_SIZE - 2, MAP_CELL_SIZE - 2)
+
+    for _, grid in ipairs(roomData.grids) do
+        local x = originX + (grid % MAP_COLUMNS) * MAP_CELL_SIZE + 1
+        local y = originY + math.floor(grid / MAP_COLUMNS) * MAP_CELL_SIZE + 1
+        ROOM_FILL_SPRITE:Render(
+            Vector(math.floor(x), math.floor(y)),
+            Vector(0, 0),
+            Vector(0, 0)
+        )
+    end
+
+    ROOM_FILL_SPRITE.Scale = Vector(1, 1)
+    ROOM_FILL_SPRITE.Color = Color(1, 1, 1, 1, 0, 0, 0)
+end
+
 local function renderMapCellLabel(text, cellX, cellY, color)
     local labelX = cellX + math.floor(
         (MAP_CELL_SIZE - textWidth(text, "cell")) / 2
@@ -744,6 +777,7 @@ local function renderFloorMap()
             grids = roomFootprintGrids(mapRoom.grid, mapRoom.shape),
             anchor = normalizedGridIndex(mapRoom.grid),
             specialRoom = specialRoom,
+            visited = visited,
             color = specialRoom and (specialRoom == BOSS_ROOM_MAP_MARKER
                     and specialRoom.color
                     or (visited and VISITED_SPECIAL_ROOM_COLOR or specialRoom.color))
@@ -767,8 +801,9 @@ local function renderFloorMap()
     )
     renderLine(tr("map.title"), originX, 32, { 1.00, 0.90, 0.35 }, "title")
 
-    -- Empty cells are drawn first; one connected perimeter is then drawn around
-    -- every real room, so 2x2 and L rooms no longer look like separate 1x1 rooms.
+    -- Empty cells are drawn first. Real room cells are filled next, then one
+    -- connected perimeter is drawn around each footprint, so 2x2 and L rooms
+    -- no longer look like separate 1x1 rooms or enclose ambiguous empty space.
     for row = 0, MAP_ROWS - 1 do
         for column = 0, MAP_COLUMNS - 1 do
             local grid = row * MAP_COLUMNS + column
@@ -778,6 +813,10 @@ local function renderFloorMap()
                 renderLine(".", x + 4, y + 2, { 0.30, 0.30, 0.30, 0.45 }, "cell")
             end
         end
+    end
+
+    for _, roomData in ipairs(generatedRooms) do
+        renderRoomFill(roomData, originX, originY)
     end
 
     for _, roomData in ipairs(generatedRooms) do
