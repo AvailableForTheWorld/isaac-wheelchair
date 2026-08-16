@@ -1,18 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <metadata>
-    <name>Opening Presets</name>
+    <name>预设 / Opening Presets</name>
     <directory>opening-presets</directory>
-    <id></id>
-    <description>
-        Configure one persistent starting-loadout screen when a new run begins. Collectibles are
-        grouped by ItemConfig quality from 4 down to 0, prioritized by power within each quality,
-        and displayed in a bordered, centered 60%-width panel with three columns and overflow-safe
-        groups. One universal loadout applies to all characters, supports per-item counts, and can
-        remove copies granted by the mod. Dynamic keyboard/controller help and MCM-configurable
-        panel shortcuts. Uses EID Chinese names and font.
-    </description>
+    <id>0</id>
+    <description>给以撒开局添加任意道具，用于开荒速成或测试道具之间的配合，支持多个相同道具叠加，多个道具配合使用，按照道具等级以及同级道具的热门程度排序。</description>
     <version>3.1.2</version>
     <visibility>Public</visibility>
-    <tag id="Lua" />
-    <tag id="Tweaks" />
+    <tag id="Lua"/>
+    <tag id="Tweaks"/>
 </metadata>
