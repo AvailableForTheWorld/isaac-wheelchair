@@ -1,5 +1,7 @@
 # Opening Presets
 
+![Opening Presets Workshop cover](assets/workshop-cover.png)
+
 Opening Presets displays one centered custom-loadout screen at the beginning of each new run in The Binding of Isaac: Repentance+. It does not reopen automatically when continuing a saved run, so items cannot be granted twice accidentally.
 
 ## One-screen layout
