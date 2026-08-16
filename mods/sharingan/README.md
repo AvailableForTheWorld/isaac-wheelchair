@@ -10,6 +10,7 @@ Sharingan is now a focused, read-only floor-map and enemy-health overlay for The
 - Press the configured shortcut to open or close the floor map.
 - Defaults: **F6** on keyboard and **Left Stick click** on controller.
 - Open **Mod Config Menu → Sharingan → Controls** to change either shortcut.
+- The floor map starts closed on every new or continued run and opens only when requested.
 - The map does not pause or filter normal gameplay input.
 
 There is no Combat page and no Left/Right page navigation.

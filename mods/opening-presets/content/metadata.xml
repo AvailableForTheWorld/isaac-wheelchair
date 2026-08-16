@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+    <name>Opening Presets</name>
+    <directory>opening-presets</directory>
+    <id></id>
+    <description>
+        Configure one persistent starting-loadout screen when a new run begins. Collectibles are
+        grouped by ItemConfig quality from 4 down to 0, prioritized by power within each quality,
+        and displayed in a bordered, centered 60%-width panel with three columns and overflow-safe
+        groups. One universal loadout applies to all characters, supports per-item counts, and can
+        remove copies granted by the mod. Dynamic keyboard/controller help and MCM-configurable
+        panel shortcuts. Uses EID Chinese names and font.
+    </description>
+    <version>3.1.2</version>
+    <visibility>Public</visibility>
+    <tag id="Lua" />
+    <tag id="Tweaks" />
+</metadata>

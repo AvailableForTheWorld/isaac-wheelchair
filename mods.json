@@ -1,6 +1,12 @@
 {
   "schemaVersion": 1,
   "mods": {
+    "opening-presets": {
+      "displayName": "Opening Presets",
+      "workshopContentPath": "mods/opening-presets/content",
+      "installDirectory": "opening-presets",
+      "workshopId": null
+    },
     "sharingan": {
       "displayName": "Sharingan / 写轮眼",
       "workshopContentPath": "mods/sharingan/content",

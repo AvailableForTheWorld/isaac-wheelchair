@@ -179,7 +179,7 @@ local BOSS_ROOM_MAP_MARKER = {
 local persistent
 local run
 local ui = {
-    overlayVisible = true,
+    overlayVisible = false,
 }
 
 local runtime = {}
@@ -248,7 +248,7 @@ end
 local function newPersistentData()
     return {
         schema = SAVE_SCHEMA,
-        preferences = { overlayVisible = true },
+        preferences = { overlayVisible = false },
         activeRun = nil,
     }
 end
@@ -553,6 +553,9 @@ end
 
 function BeginnerLedger:OnGameStarted(isContinued)
     loadPersistentData()
+    -- Start every run with the map closed. This leaves startup UI to mods such
+    -- as Opening Presets and makes Sharingan an explicitly requested overlay.
+    ui.overlayVisible = false
     local seed = game:GetSeeds():GetStartSeed()
     if isContinued and persistent.activeRun and persistent.activeRun.seed == seed then
         run = persistent.activeRun
