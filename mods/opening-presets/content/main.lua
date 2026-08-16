@@ -284,6 +284,14 @@ local function itemIsAvailable(itemId)
     return config ~= nil and not config.Hidden
 end
 
+local function initialCollectibleCharge(itemId)
+    local config = Isaac.GetItemConfig():GetCollectible(itemId)
+    if config ~= nil and config.Type == ItemType.ITEM_ACTIVE then
+        return math.max(0, math.floor(tonumber(config.MaxCharges) or 0))
+    end
+    return 0
+end
+
 local function playerGrantedMap(playerIndex)
     local key = tostring(playerIndex)
     runGrantedCounts[key] = normalizeCountMap(runGrantedCounts[key])
@@ -301,7 +309,7 @@ local function grantConfiguredItems()
             local missing = math.max(0, math.floor(desiredCount) - alreadyGranted)
             if itemId and itemIsAvailable(itemId) then
                 for _ = 1, missing do
-                    player:AddCollectible(itemId, 0, true)
+                    player:AddCollectible(itemId, initialCollectibleCharge(itemId), true)
                     granted = granted + 1
                     tracked[itemKey] = (tonumber(tracked[itemKey]) or 0) + 1
                 end

@@ -37,6 +37,7 @@ There is one universal loadout for every character. Each row displays its config
 **Clear + remove** does two things: it resets every configured count and immediately removes the copies that Opening Presets granted to every active player. It deliberately preserves items that the character started with or acquired through normal gameplay. Granted-copy tracking is stored with the run seed, so removal continues to work after leaving and continuing the run.
 
 Active collectibles still follow Isaac's normal active-slot behavior when several copies or different active items are granted.
+Active items granted by Opening Presets begin at their configured maximum charge, matching a normal in-game pickup. Active items that naturally require no charge remain unchanged.
 
 ## Installation
 
