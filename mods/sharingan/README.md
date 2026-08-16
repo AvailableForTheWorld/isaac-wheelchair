@@ -6,7 +6,9 @@ Sharingan is now a focused, read-only floor-map and enemy-health overlay for The
 
 ## Interface and controls
 
-- The in-run interface intentionally uses English. Isaac's public Lua font loader did not render Chinese glyphs reliably, so the mod uses readable English instead of broken labels.
+- The in-run interface follows Chinese when Isaac or External Item Descriptions uses Chinese; otherwise it uses English.
+- Chinese map titles, room labels, and help text render through EID's native-scale Unicode font. If EID is unavailable, English remains the safe fallback font path.
+- In Chinese mode, room fills and digits shift slightly right while room outlines, the panel frame, and the right legend remain fixed.
 - Press the configured shortcut to open or close the floor map.
 - Defaults: **F6** on keyboard and **Left Stick click** on controller.
 - Open **Mod Config Menu → Sharingan → Controls** to change either shortcut.
@@ -46,7 +48,7 @@ The legend is ranked from most generally practical to least:
 19. Clean Bedroom
 20. Dirty Bedroom
 
-Boss Rooms are marked directly on the map with a black `B` and are omitted from the numbered legend. Unvisited rooms have a light gray-white interior, while a room becomes dark gray only after Sharingan observes the player physically entering it. Unvisited special rooms keep saturated borders and digits; visited special markers become neutral gray. `@` is the current non-special room, and `.` is an empty grid cell. Off-grid rooms such as Crawl Spaces and Black Markets are not assigned false 13×13 map positions.
+Boss Rooms are marked directly on the map with a black `B` and are omitted from the numbered legend. Unvisited rooms have a light gray-white interior, while a room becomes dark gray only after Sharingan observes the player physically entering it. Unvisited special rooms keep saturated borders and digits; visited special markers become neutral gray. `@` is the current non-special room. Empty grid cells are left blank. Off-grid rooms such as Crawl Spaces and Black Markets are not assigned false 13×13 map positions.
 
 ## Performance and persistence
 

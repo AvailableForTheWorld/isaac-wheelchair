@@ -602,6 +602,13 @@ function BeginnerLedger:OnPreGameExit()
     if run then savePersistentData() end
 end
 
+local function useEidChineseFont()
+    return I18N.GetLanguage() == "zh"
+        and EID ~= nil
+        and EID.font ~= nil
+        and EID.font:IsLoaded()
+end
+
 local function renderLine(text, x, y, color, style)
     local c = color or { 1, 1, 1 }
     local useSmall = style == "small" or style == "cell"
@@ -613,7 +620,18 @@ local function renderLine(text, x, y, color, style)
     local drawX = math.floor(x)
     local drawY = math.floor(y)
 
-    if loaded then
+    if useEidChineseFont() then
+        -- EID selects a Unicode Chinese pixel atlas for zh_cn. Draw once at
+        -- native scale and integer coordinates to keep the strokes crisp.
+        EID.font:DrawStringUTF8(
+            text,
+            drawX,
+            drawY,
+            KColor(c[1], c[2], c[3], c[4] or 1),
+            0,
+            false
+        )
+    elseif loaded then
         local shadow = KColor(0.02, 0.02, 0.03, 0.98)
         local foreground = KColor(c[1], c[2], c[3], c[4] or 1)
         -- Native-size UTF-8 text at integer coordinates stays pixel-sharp.
@@ -631,6 +649,7 @@ local function renderLine(text, x, y, color, style)
 end
 
 local function textWidth(text, style)
+    if useEidChineseFont() then return EID.font:GetStringWidthUTF8(text) end
     local useSmall = style == "small" or style == "cell"
     local fonts = currentFonts()
     local font = useSmall and fonts.small or fonts.body
@@ -832,6 +851,11 @@ local function renderMapCellLabel(text, cellX, cellY, color)
     local labelX = cellX + math.floor(
         (MAP_CELL_SIZE - textWidth(text, "cell")) / 2
     )
+    if I18N.GetLanguage() == "zh" then
+        -- EID's Chinese atlas reports a wider advance than the visible Latin
+        -- digit/marker pixels, so compensate for its left-heavy bearing.
+        labelX = labelX + 1
+    end
     renderLine(text, labelX, cellY + 1, color, "cell")
 end
 
@@ -841,10 +865,12 @@ local function renderFloorMap()
     local screenWidth = Isaac.GetScreenWidth()
     local originX = math.max(18, math.floor(screenWidth / 2 - 175))
     local originY = 48
+    -- Keep room outlines on the original grid. In Chinese mode, shift only
+    -- room fills and their labels to compensate for EID's left-heavy glyphs.
+    local mapContentOriginX = originX + (I18N.GetLanguage() == "zh" and 2 or 0)
     local toolbarX = originX + MAP_COLUMNS * MAP_CELL_SIZE + 22
     local descriptor = game:GetLevel():GetCurrentRoomDesc()
     local currentRoomId = descriptor and tostring(descriptor.ListIndex) or nil
-    local generatedCells = {}
     local generatedRooms = {}
     for roomId, mapRoom in pairs(floor.mapRooms) do
         local specialRoom = SPECIAL_ROOM_BY_TYPE[mapRoom.roomType]
@@ -865,11 +891,6 @@ local function renderFloorMap()
                     or { 0.62, 0.68, 0.72 }),
         }
         generatedRooms[#generatedRooms + 1] = roomData
-        for _, grid in ipairs(roomData.grids) do
-            if not generatedCells[grid] or roomId == currentRoomId then
-                generatedCells[grid] = roomData
-            end
-        end
     end
 
     local mapPanelWidth = MAP_COLUMNS * MAP_CELL_SIZE + 205
@@ -882,21 +903,11 @@ local function renderFloorMap()
     renderLine(tr("map.title"), originX, 32, { 1.00, 0.90, 0.35 }, "title")
 
     -- Empty cells are drawn first. Real room cells are filled next, then one
-    -- connected perimeter is drawn around each footprint, so 2x2 and L rooms
-    -- no longer look like separate 1x1 rooms or enclose ambiguous empty space.
-    for row = 0, MAP_ROWS - 1 do
-        for column = 0, MAP_COLUMNS - 1 do
-            local grid = row * MAP_COLUMNS + column
-            local x = originX + column * MAP_CELL_SIZE
-            local y = originY + row * MAP_CELL_SIZE
-            if not generatedCells[grid] then
-                renderLine(".", x + 4, y + 2, { 0.30, 0.30, 0.30, 0.45 }, "cell")
-            end
-        end
-    end
+    -- A connected perimeter is drawn around each footprint, so 2x2 and L
+    -- rooms do not look like separate 1x1 rooms or enclose ambiguous space.
 
     for _, roomData in ipairs(generatedRooms) do
-        renderRoomFill(roomData, originX, originY)
+        renderRoomFill(roomData, mapContentOriginX, originY)
     end
 
     for _, roomData in ipairs(generatedRooms) do
@@ -907,7 +918,7 @@ local function renderFloorMap()
     -- room indicator appear once even when a room occupies several map cells.
     for _, roomData in ipairs(generatedRooms) do
         local specialRoom = roomData.specialRoom
-        local x = roomData.anchor and originX
+        local x = roomData.anchor and mapContentOriginX
             + (roomData.anchor % MAP_COLUMNS) * MAP_CELL_SIZE or nil
         local y = roomData.anchor and originY
             + math.floor(roomData.anchor / MAP_COLUMNS) * MAP_CELL_SIZE or nil

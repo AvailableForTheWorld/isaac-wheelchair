@@ -71,8 +71,16 @@ local function lookup(language, key)
 end
 
 function I18N.GetLanguage()
-    -- Isaac's public Font API does not reliably expose the active Chinese
-    -- glyph atlas to ordinary Lua mods. Keep the HUD readable and deterministic.
+    local fontReady = false
+    if EID and EID.font and type(EID.font.IsLoaded) == "function" then
+        local ok, loaded = pcall(EID.font.IsLoaded, EID.font)
+        fontReady = ok and loaded == true
+    end
+    if fontReady and EID and type(EID.getLanguage) == "function" then
+        local ok, language = pcall(EID.getLanguage, EID)
+        if ok and language == "zh_cn" then return "zh" end
+    end
+    if fontReady and Options and Options.Language == "zh" then return "zh" end
     return "en"
 end
 

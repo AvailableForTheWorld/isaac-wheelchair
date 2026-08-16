@@ -9,13 +9,15 @@
         visited special rooms turn gray. The main player receives the real Spider Mod collectible,
         providing its native health bars and damage numbers. The supplied robot familiar is hidden
         and removed. Sharingan removes its supplied copy when the player collects a genuine item.
-        The map starts closed. MCM-configurable shortcuts. Defaults: F6 / Left Stick click.
+        The map starts closed. English/Chinese interface with EID Chinese font support.
+        MCM-configurable shortcuts. Defaults: F6 / Left Stick click.
 
         写轮眼显示完整、按真实形状绘制的楼层地图和特殊房间。Boss 房使用黑色 B，已访问房间变为灰色。
         主玩家会获得蜘蛛模组的原生血条与伤害数字；模组提供的机器人跟班会被隐藏并移除。
         玩家拾取自己的蜘蛛模组后，写轮眼会移除由模组提供的副本，避免重复。
+        支持中文地图标题、房间标签和帮助文字，并使用 EID 中文字体清晰显示。
         支持 MCM 键盘/手柄快捷键；默认 F6 / 按下左摇杆。</description>
-    <version>2.1.1</version>
+    <version>2.2.4</version>
     <visibility>Public</visibility>
     <tag id="Lua" />
     <tag id="Tweaks" />
