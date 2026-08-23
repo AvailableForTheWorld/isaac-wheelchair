@@ -1,6 +1,12 @@
 {
   "schemaVersion": 1,
   "mods": {
+    "eden-mode": {
+      "displayName": "Eden Mode / 伊甸模式",
+      "workshopContentPath": "mods/eden-mode/content",
+      "installDirectory": "eden-mode",
+      "workshopId": null
+    },
     "opening-presets": {
       "displayName": "Opening Presets",
       "workshopContentPath": "mods/opening-presets/content",
