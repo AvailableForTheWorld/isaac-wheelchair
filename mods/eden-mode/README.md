@@ -7,6 +7,8 @@ Eden Mode gives every playable character an Eden-style start while preserving th
 Each player receives a deterministic profile on a new run:
 
 - **Exactly 0, 1, 2, or 3 passive/familiar collectibles**, independently rolled in either active-item mode and selected from the Treasure (65%), Boss (20%), Shop (10%), and Library (5%) pools. The game's item pool still enforces unlocks and character/run restrictions.
+- **One random trinket.** A character's native starting trinkets are first smelted into permanent passive effects, leaving the trinket slot available for the random roll.
+- **One random pocket consumable on the starting-room floor:** either a pill or an unlocked card/rune/soul stone. It is never inserted into or substituted for the character's existing pocket slots.
 - **Random starting health:** ordinary characters receive one of four equally likely profiles: red hearts, soul hearts only, black hearts only, or mixed red plus soul/black hearts. Red-heart containers and their filled-heart count are rolled separately.
 - **Damage:** 0.80x-1.20x.
 - **Tears/fire rate:** 0.85x-1.15x.
@@ -31,6 +33,10 @@ Tainted Lost keeps the **Better Items** mechanic for Eden Mode's starting items.
 
 Eden Mode does not change the selected character, innate effects, pocket actives, consumables, or original passive starting items. By default, it replaces only the primary starting active as described below.
 
+Original passive collectibles are never removed. For example, Cain keeps Lucky Foot. If Cain has unlocked Paper Clip as his native starting trinket, Paper Clip is smelted into a permanent effect and the newly randomized trinket occupies the freed slot. The same rule applies to any other character with one or two starting trinkets, including golden trinkets. If another mod prevents the slot from becoming free, the random trinket safely appears on the room floor instead.
+
+Original cards, runes, soul stones, and pills are also never removed or replaced. Only Eden Mode's extra randomized pocket consumable appears as a pickup on the room floor.
+
 Health rolls remain within these limits:
 
 - Red-only: 1-4 containers with a separately rolled 1-to-maximum filled-heart count.
@@ -53,6 +59,8 @@ Select the **Starting active** row and press **Left / Right** to switch between 
 The submenu repeats these controls and explains both choices directly below the selector.
 
 Starting health is always randomized automatically for compatible characters; it is independent from the active-item selector. The submenu also calls out the fixed-health character exceptions.
+
+The submenu also explains that original passives remain, native trinkets become permanent smelted effects, and the random card/rune/pill is placed on the floor.
 
 Pocket actives are never replaced. If the primary active cannot be safely removed, Eden Mode preserves it and omits the replacement; it never converts a failed active roll into a fourth passive. The setting is captured when a player profile is created; changing it during a run affects only future profiles or a completely new run.
 
@@ -79,8 +87,10 @@ Enable **Eden Mode** in Isaac's Mods menu. Do not enable both a local copy and a
 5. Select **Original active**, start a new run with those characters, and verify their original primary actives remain equipped while their passive/familiar count still varies from 0 through 3.
 6. Start several Tainted Lost runs and verify every granted item has the `TAG_OFFENSIVE` whitelist tag. Check that some Quality 0-2 selections are logged with `TLR`, while ordinary Lost does not enable the Tainted Lost filter.
 7. Start as The Lost, Keeper, Forgotten, and their tainted variants and verify their original health and innate mechanics remain intact.
-8. Exit and Continue a run; confirm the same health, stats, and active return without duplicated items or health changes.
-9. Add a co-op player and flip Tainted Lazarus; confirm each newly active inventory receives one profile.
+8. Start as Cain after unlocking Paper Clip. Verify Lucky Foot remains, Paper Clip works as a smelted permanent effect, and a different random trinket is held.
+9. Start characters with native cards, runes, soul stones, or pills. Verify the native pocket item remains and Eden Mode's extra consumable appears on the room floor.
+10. Exit and Continue a run; confirm the same health, stats, active, and trinket return without duplicated items or floor pickups.
+11. Add a co-op player and flip Tainted Lazarus; confirm each newly active inventory receives one profile and one nearby consumable pickup.
 
 ## Workshop publishing
 

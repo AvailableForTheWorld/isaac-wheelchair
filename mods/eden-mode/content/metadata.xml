@@ -6,7 +6,8 @@
     <description>
         Every compatible character receives deterministic randomized red, soul, black, or mixed
         starting health, an Eden-style stat profile, and 0-3 random passive or familiar
-        collectibles.
+        collectibles. Native passive items remain. Native trinkets become permanent smelted effects,
+        then a random trinket is held; a random pill/card/rune/soul stone spawns safely on the room floor.
         Fixed-health characters keep their special rules. Weak overall profiles favor powerful
         items;
         strong profiles favor weaker items. By default, the mod also grants a random active that
@@ -17,11 +18,13 @@
         所有兼容角色都会获得可重复的随机红心、魂心、黑心或混合初始血量，以及一组伊甸式随机属性和
         0-3 个随机被动或跟班道具。固定血量角色会保留其特殊机制。整体较弱时更容易获得高品质道具，
         整体较强时更容易获得低品质道具。
+        原生被动道具始终保留；原生饰品会变成永久吞下效果，然后获得一个随机饰品；
+        随机药丸、卡牌、符文或魂石只会生成在房间地面，不会覆盖原副手栏。
         默认情况下，还会获得一个随机主动道具，并替换主主动栏中的初始道具。
         可在 Mod Config Menu 中改为保留原版主动；堕化游魂的初始道具会保留攻击型白名单和低品质重掷机制。
         支持联机、继续游戏和里拉撒路的两套道具栏。
     </description>
-    <version>1.5.2</version>
+    <version>1.6.0</version>
     <visibility>Public</visibility>
     <tag id="Lua"/>
     <tag id="Tweaks"/>

@@ -7,6 +7,7 @@ local RNG_SHIFT_INDEX = 35
 local ACTIVE_ITEM_CHANCE = 0.40
 local MAX_ITEM_SEARCH_ATTEMPTS = 80
 local MAX_ACTIVE_ITEM_SEARCH_ATTEMPTS = 240
+local MAX_TRINKET_SEARCH_ATTEMPTS = 24
 local TAINTED_LOST_REROLL_CHANCE = 0.20
 local DEFAULT_RANDOMIZE_STARTING_ACTIVE = true
 local MCM_CATEGORY = "Eden Mode"
@@ -101,6 +102,24 @@ if mcmLoaded then
         MCM_SUBCATEGORY,
         chinese and "游魂、店主和遗骸保留其特殊血量机制。"
             or "Lost, Keeper, and Forgotten keep fixed health rules."
+    )
+    MCM.AddText(
+        MCM_CATEGORY,
+        MCM_SUBCATEGORY,
+        chinese and "原被动不删除；角色自带饰品会永久吞下。"
+            or "Keep native passives; permanently smelt native trinkets."
+    )
+    MCM.AddText(
+        MCM_CATEGORY,
+        MCM_SUBCATEGORY,
+        chinese and "随后获得随机饰品；原副手物品不会被覆盖。"
+            or "Then roll a trinket; never overwrite native pocket items."
+    )
+    MCM.AddText(
+        MCM_CATEGORY,
+        MCM_SUBCATEGORY,
+        chinese and "额外卡牌 / 符文 / 魂石 / 药丸生成在地面。"
+            or "An extra card/rune/soul stone/pill spawns on the floor."
     )
     MCM.AddText(
         MCM_CATEGORY,
@@ -386,6 +405,15 @@ local function itemProfileSeed(index, formSalt)
     return mixedSeed
 end
 
+local function accessoryProfileSeed(index, formSalt)
+    local seedMixer = RNG()
+    seedMixer:SetSeed(profileSeed(index, formSalt), RNG_SHIFT_INDEX)
+    local mixedSeed = seedMixer:GetSeed()
+    for _ = 1, 97 do mixedSeed = seedMixer:Next() end
+    if mixedSeed == 0 then return 1 end
+    return mixedSeed
+end
+
 local function createProfile(player, index, formSalt)
     local rng = RNG()
     rng:SetSeed(profileSeed(index, formSalt), RNG_SHIFT_INDEX)
@@ -409,6 +437,7 @@ local function createProfile(player, index, formSalt)
         powerScore = combinedPowerScore(statScore, healthScore),
         healthApplied = false,
         itemSeed = itemSeed,
+        accessorySeed = accessoryProfileSeed(index, formSalt),
         passiveItemCount = itemSeed % 4,
         randomizeStartingActive = randomizeStartingActiveEnabled(),
         items = {},
@@ -578,7 +607,114 @@ local function applyHealthProfile(player, profile)
     profile.healthApplied = true
 end
 
+local function spawnPickupNearPlayer(player, variant, subtype)
+    local spawnPosition = game:GetRoom():FindFreePickupSpawnPosition(
+        player.Position,
+        40,
+        true
+    )
+    return Isaac.Spawn(
+        EntityType.ENTITY_PICKUP,
+        variant,
+        subtype,
+        spawnPosition,
+        Vector.Zero,
+        player
+    )
+end
+
+local function baseTrinketId(trinketId)
+    return trinketId & TrinketType.TRINKET_ID_MASK
+end
+
+local function heldStartingTrinkets(player)
+    local held = {}
+    for slot = 0, 1 do
+        local trinketId = player:GetTrinket(slot)
+        if trinketId and trinketId > 0 then table.insert(held, trinketId) end
+    end
+    return held
+end
+
+local function hasFreeTrinketSlot(player)
+    for slot = 0, math.max(1, player:GetMaxTrinkets()) - 1 do
+        if player:GetTrinket(slot) == TrinketType.TRINKET_NULL then return true end
+    end
+    return false
+end
+
+local function randomStartingTrinket(itemPool, originalTrinkets)
+    local excluded = {}
+    for _, trinketId in ipairs(originalTrinkets) do
+        excluded[baseTrinketId(trinketId)] = true
+    end
+
+    for _ = 1, MAX_TRINKET_SEARCH_ATTEMPTS do
+        local trinketId = itemPool:GetTrinket()
+        if trinketId and trinketId > TrinketType.TRINKET_NULL
+            and not excluded[baseTrinketId(trinketId)] then
+            return trinketId
+        end
+    end
+    return TrinketType.TRINKET_NULL
+end
+
+local function grantStartingAccessories(player, profile)
+    local rng = RNG()
+    rng:SetSeed(profile.accessorySeed, RNG_SHIFT_INDEX)
+    local itemPool = game:GetItemPool()
+    local originalTrinkets = heldStartingTrinkets(player)
+    profile.smeltedStartingTrinkets = originalTrinkets
+
+    if #originalTrinkets > 0 then
+        -- The vanilla API has no direct AddSmeltedTrinket method. A hidden
+        -- Smelter use preserves every held starting trinket as a permanent
+        -- passive effect without touching the character's active-item slots.
+        player:UseActiveItem(C.COLLECTIBLE_SMELTER, false, true, true, false)
+    end
+
+    local trinketId = randomStartingTrinket(itemPool, originalTrinkets)
+    profile.randomTrinketId = trinketId
+    profile.randomTrinketPlacement = "none"
+    if trinketId > TrinketType.TRINKET_NULL then
+        if hasFreeTrinketSlot(player) then
+            player:AddTrinket(trinketId)
+            profile.randomTrinketPlacement = "held"
+        else
+            spawnPickupNearPlayer(player, PickupVariant.PICKUP_TRINKET, trinketId)
+            profile.randomTrinketPlacement = "floor"
+        end
+        itemPool:RemoveTrinket(baseTrinketId(trinketId))
+    end
+
+    local pickupSeed = rng:Next()
+    if pickupSeed == 0 then pickupSeed = 1 end
+    local pickupVariant = PickupVariant.PICKUP_TAROTCARD
+    local pickupSubtype = 0
+    local pickupKind = "card"
+    if rng:RandomInt(2) == 0 then
+        pickupVariant = PickupVariant.PICKUP_PILL
+        pickupSubtype = itemPool:GetPill(pickupSeed)
+        pickupKind = "pill"
+    else
+        pickupSubtype = itemPool:GetCard(pickupSeed, true, true, false)
+        local cardConfig = Isaac.GetItemConfig():GetCard(pickupSubtype)
+        if cardConfig and cardConfig:IsRune() then pickupKind = "rune/soul" end
+    end
+
+    profile.pocketPickup = {
+        variant = pickupVariant,
+        subtype = pickupSubtype,
+        kind = pickupKind,
+    }
+    if pickupSubtype and pickupSubtype > 0 then
+        spawnPickupNearPlayer(player, pickupVariant, pickupSubtype)
+    end
+end
+
 local function grantProfileItems(player, profile)
+    grantStartingAccessories(player, profile)
+
     local rng = RNG()
     rng:SetSeed(profile.itemSeed, RNG_SHIFT_INDEX)
     local chosen = {}
@@ -698,13 +834,27 @@ local function describeProfile(index, key, profile)
             string.format("%d(Q%d%s)", item.id, item.quality or -1, markers)
         )
     end
+    local smeltedTrinkets = {}
+    for _, trinketId in ipairs(profile.smeltedStartingTrinkets or {}) do
+        table.insert(smeltedTrinkets, tostring(trinketId))
+    end
+    local pocketPickup = profile.pocketPickup or {}
+    local pocketDescription = string.format(
+        "%s:%d",
+        tostring(pocketPickup.kind or "none"),
+        tonumber(pocketPickup.subtype) or 0
+    )
     Isaac.DebugString(string.format(
-        "[Eden Mode] Player %d (%s): active mode %s, replaced #%s; passives %d; Tainted Lost pool %s; health %s R%.1f/%.1f S%.1f B%.1f; power %+.3f (stats %+.3f, health %+.3f); damage x%.3f, tears x%.3f, shot speed x%.3f, range x%.3f, speed x%.3f, luck %+.3f; items [%s]",
+        "[Eden Mode] Player %d (%s): active mode %s, replaced #%s; passives %d; trinket #%s (%s), native smelted [%s], pocket floor %s; Tainted Lost pool %s; health %s R%.1f/%.1f S%.1f B%.1f; power %+.3f (stats %+.3f, health %+.3f); damage x%.3f, tears x%.3f, shot speed x%.3f, range x%.3f, speed x%.3f, luck %+.3f; items [%s]",
         index,
         key,
         profile.randomizeStartingActive and "replace" or "preserve",
         tostring(profile.replacedActiveId or 0),
         profile.passiveItemCount,
+        tostring(profile.randomTrinketId or 0),
+        tostring(profile.randomTrinketPlacement or "none"),
+        table.concat(smeltedTrinkets, ","),
+        pocketDescription,
         profile.taintedLostRules and "on" or "off",
         tostring(health.kind or "preserved"),
         (tonumber(health.redHearts) or 0) / 2,
@@ -749,6 +899,12 @@ local function initializePlayer(player, index)
     profile.powerScore = combinedPowerScore(profile.statScore, profile.healthScore)
     profile.itemSeed = math.floor(tonumber(profile.itemSeed) or itemProfileSeed(index, formSalt))
     if profile.itemSeed <= 0 then profile.itemSeed = itemProfileSeed(index, formSalt) end
+    profile.accessorySeed = math.floor(
+        tonumber(profile.accessorySeed) or accessoryProfileSeed(index, formSalt)
+    )
+    if profile.accessorySeed <= 0 then
+        profile.accessorySeed = accessoryProfileSeed(index, formSalt)
+    end
     local savedPassiveItemCount = tonumber(profile.passiveItemCount)
     profile.passiveItemCount = clamp(
         math.floor(savedPassiveItemCount or (profile.itemSeed % 4)),
