@@ -7,6 +7,7 @@ local RNG_SHIFT_INDEX = 35
 local ACTIVE_ITEM_CHANCE = 0.40
 local MAX_ITEM_SEARCH_ATTEMPTS = 80
 local MAX_ACTIVE_ITEM_SEARCH_ATTEMPTS = 240
+local TAINTED_LOST_REROLL_CHANCE = 0.20
 local DEFAULT_RANDOMIZE_STARTING_ACTIVE = true
 local MCM_CATEGORY = "Eden Mode"
 local MCM_SUBCATEGORY = "Starting items"
@@ -425,10 +426,11 @@ local function weightedItemPool(rng)
     return ItemPoolType.POOL_TREASURE
 end
 
-local function collectibleConfig(itemId, wantActive, chosen)
+local function collectibleConfig(itemId, wantActive, chosen, requireOffensive)
     if not itemId or itemId <= C.COLLECTIBLE_NULL or chosen[itemId] then return nil end
     local config = Isaac.GetItemConfig():GetCollectible(itemId)
     if not config or config.Hidden or not config:IsAvailable() then return nil end
+    if requireOffensive and not config:HasTags(ItemConfig.TAG_OFFENSIVE) then return nil end
 
     if wantActive and config.Type == ItemType.ITEM_ACTIVE then return config end
     if not wantActive
@@ -438,7 +440,14 @@ local function collectibleConfig(itemId, wantActive, chosen)
     return nil
 end
 
-local function findCollectible(rng, wantActive, chosen, desiredQuality)
+local function findCollectible(
+    rng,
+    wantActive,
+    chosen,
+    desiredQuality,
+    requireOffensive,
+    fixedPoolType
+)
     local itemPool = game:GetItemPool()
     local bestItemId = nil
     local bestPoolType = nil
@@ -446,7 +455,7 @@ local function findCollectible(rng, wantActive, chosen, desiredQuality)
     local searchAttempts = wantActive
         and MAX_ACTIVE_ITEM_SEARCH_ATTEMPTS or MAX_ITEM_SEARCH_ATTEMPTS
     for _ = 1, searchAttempts do
-        local poolType = weightedItemPool(rng)
+        local poolType = fixedPoolType or weightedItemPool(rng)
         local itemSeed = rng:Next()
         if itemSeed == 0 then itemSeed = 1 end
         local itemId = itemPool:GetCollectible(
@@ -455,7 +464,7 @@ local function findCollectible(rng, wantActive, chosen, desiredQuality)
             itemSeed,
             C.COLLECTIBLE_NULL
         )
-        local config = collectibleConfig(itemId, wantActive, chosen)
+        local config = collectibleConfig(itemId, wantActive, chosen, requireOffensive)
         if config then
             local distance = math.abs(config.Quality - desiredQuality)
             if distance < bestDistance then
@@ -467,6 +476,44 @@ local function findCollectible(rng, wantActive, chosen, desiredQuality)
         end
     end
     return bestItemId, bestPoolType
+end
+
+local function findStartingCollectible(
+    rng,
+    wantActive,
+    chosen,
+    desiredQuality,
+    taintedLostRules
+)
+    local itemId, poolType = findCollectible(
+        rng,
+        wantActive,
+        chosen,
+        desiredQuality,
+        taintedLostRules,
+        nil
+    )
+    if not itemId or not taintedLostRules then return itemId, poolType, false end
+
+    local config = Isaac.GetItemConfig():GetCollectible(itemId)
+    if config.Quality > 2 or rng:RandomFloat() >= TAINTED_LOST_REROLL_CHANCE then
+        return itemId, poolType, false
+    end
+
+    -- Tainted Lost rerolls a low-quality result within the same pool. Exclude
+    -- the first result so a successful reroll is visibly a different item.
+    chosen[itemId] = true
+    local rerolledItemId, rerolledPoolType = findCollectible(
+        rng,
+        wantActive,
+        chosen,
+        desiredQuality,
+        true,
+        poolType
+    )
+    chosen[itemId] = nil
+    if rerolledItemId then return rerolledItemId, rerolledPoolType, true end
+    return itemId, poolType, false
 end
 
 local function desiredItemQuality(rng, statScore)
@@ -535,6 +582,8 @@ local function grantProfileItems(player, profile)
     local rng = RNG()
     rng:SetSeed(profile.itemSeed, RNG_SHIFT_INDEX)
     local chosen = {}
+    local taintedLostRules = player:GetPlayerType() == P.PLAYER_THELOST_B
+    profile.taintedLostRules = taintedLostRules
     local replaceStartingActive = profile.randomizeStartingActive == true
     local originalPrimaryActive = player:GetActiveItem(ActiveSlot.SLOT_PRIMARY)
     if replaceStartingActive and originalPrimaryActive ~= C.COLLECTIBLE_NULL then
@@ -554,11 +603,12 @@ local function grantProfileItems(player, profile)
 
     if grantBonusActive then
         local targetQuality = desiredItemQuality(rng, profile.powerScore)
-        local itemId, poolType = findCollectible(
+        local itemId, poolType, taintedLostRerolled = findStartingCollectible(
             rng,
             true,
             chosen,
-            targetQuality
+            targetQuality,
+            taintedLostRules
         )
 
         if itemId and replaceStartingActive then
@@ -595,13 +645,20 @@ local function grantProfileItems(player, profile)
                 active = true,
                 quality = config.Quality,
                 targetQuality = targetQuality,
+                taintedLostRerolled = taintedLostRerolled,
             })
         end
     end
 
     for _ = 1, profile.passiveItemCount do
         local targetQuality = desiredItemQuality(rng, profile.powerScore)
-        local itemId, poolType = findCollectible(rng, false, chosen, targetQuality)
+        local itemId, poolType, taintedLostRerolled = findStartingCollectible(
+            rng,
+            false,
+            chosen,
+            targetQuality,
+            taintedLostRules
+        )
         if not itemId then break end
 
         local config = Isaac.GetItemConfig():GetCollectible(itemId)
@@ -614,6 +671,7 @@ local function grantProfileItems(player, profile)
             active = false,
             quality = config.Quality,
             targetQuality = targetQuality,
+            taintedLostRerolled = taintedLostRerolled,
         })
     end
 
@@ -633,18 +691,21 @@ local function describeProfile(index, key, profile)
     local health = profile.health or preservedHealthProfile()
     local itemDescriptions = {}
     for _, item in ipairs(profile.items) do
+        local markers = item.active and ",A" or ""
+        if item.taintedLostRerolled then markers = markers .. ",TLR" end
         table.insert(
             itemDescriptions,
-            string.format("%d(Q%d%s)", item.id, item.quality or -1, item.active and ",A" or "")
+            string.format("%d(Q%d%s)", item.id, item.quality or -1, markers)
         )
     end
     Isaac.DebugString(string.format(
-        "[Eden Mode] Player %d (%s): active mode %s, replaced #%s; passives %d; health %s R%.1f/%.1f S%.1f B%.1f; power %+.3f (stats %+.3f, health %+.3f); damage x%.3f, tears x%.3f, shot speed x%.3f, range x%.3f, speed x%.3f, luck %+.3f; items [%s]",
+        "[Eden Mode] Player %d (%s): active mode %s, replaced #%s; passives %d; Tainted Lost pool %s; health %s R%.1f/%.1f S%.1f B%.1f; power %+.3f (stats %+.3f, health %+.3f); damage x%.3f, tears x%.3f, shot speed x%.3f, range x%.3f, speed x%.3f, luck %+.3f; items [%s]",
         index,
         key,
         profile.randomizeStartingActive and "replace" or "preserve",
         tostring(profile.replacedActiveId or 0),
         profile.passiveItemCount,
+        profile.taintedLostRules and "on" or "off",
         tostring(health.kind or "preserved"),
         (tonumber(health.redHearts) or 0) / 2,
         (tonumber(health.maxRedHearts) or 0) / 2,

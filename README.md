@@ -6,7 +6,7 @@ This repository contains independently installable and publishable mods for The 
 
 | Registry key | Mod | Local package | Steam Workshop |
 | --- | --- | --- | --- |
-| `eden-mode` | Eden Mode / 伊甸模式 | [Documentation](mods/eden-mode/README.md) | Local-only; first upload pending |
+| `eden-mode` | Eden Mode / 伊甸模式 | [Documentation](mods/eden-mode/README.md) | [Workshop item 3788578116](https://steamcommunity.com/sharedfiles/filedetails/?id=3788578116) |
 | `opening-presets` | Opening Presets | [Documentation](mods/opening-presets/README.md) | Local-only; first upload pending |
 | `sharingan` | Sharingan / 写轮眼 | [Documentation](mods/sharingan/README.md) | Local-only; first upload pending |
 | `wheelchair` | Wheelchair Emergency Rewind | [Documentation](mods/wheelchair/README.md) | [Workshop item 3775722454](https://steamcommunity.com/sharedfiles/filedetails/?id=3775722454) |

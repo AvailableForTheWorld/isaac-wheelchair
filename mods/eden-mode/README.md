@@ -25,6 +25,8 @@ The six stat rolls and starting health are combined into a weighted power score 
 
 Each item receives a small quality jitter, and the nearest pool-valid quality is used when the exact target is unavailable. This keeps the result random while preventing high stats and top-tier items from being the normal combination.
 
+Tainted Lost keeps the **Better Items** mechanic for Eden Mode's starting items. Every random active, passive, or familiar must carry the game's `TAG_OFFENSIVE` whitelist tag. A selected Quality 0-2 item also receives Tainted Lost's 20% one-time reroll within the same pool; successful rerolls are marked `TLR` in `log.txt`. Other characters continue to use the normal Eden Mode filter.
+
 ## What stays original
 
 Eden Mode does not change the selected character, innate effects, pocket actives, consumables, or original passive starting items. By default, it replaces only the primary starting active as described below.
@@ -75,10 +77,11 @@ Enable **Eden Mode** in Isaac's Mods menu. Do not enable both a local copy and a
 3. Check `log.txt` entries beginning with `[Eden Mode]`: negative power scores should trend toward higher displayed `Q` values, while positive scores trend lower. The log lists the health profile and its stat/health score components.
 4. In MCM's default **Replace** mode, use characters with native actives (Isaac, Magdalene, Judas, Bethany) and verify the primary active becomes a different random active while pocket actives remain.
 5. Select **Original active**, start a new run with those characters, and verify their original primary actives remain equipped while their passive/familiar count still varies from 0 through 3.
-6. Start as The Lost, Keeper, Forgotten, and their tainted variants and verify their original health and innate mechanics remain intact.
-7. Exit and Continue a run; confirm the same health, stats, and active return without duplicated items or health changes.
-8. Add a co-op player and flip Tainted Lazarus; confirm each newly active inventory receives one profile.
+6. Start several Tainted Lost runs and verify every granted item has the `TAG_OFFENSIVE` whitelist tag. Check that some Quality 0-2 selections are logged with `TLR`, while ordinary Lost does not enable the Tainted Lost filter.
+7. Start as The Lost, Keeper, Forgotten, and their tainted variants and verify their original health and innate mechanics remain intact.
+8. Exit and Continue a run; confirm the same health, stats, and active return without duplicated items or health changes.
+9. Add a co-op player and flip Tainted Lazarus; confirm each newly active inventory receives one profile.
 
 ## Workshop publishing
 
-This mod is local-only until its first upload establishes a Workshop ID. Perform that first upload with Isaac's `ModUploader.exe`, then place the generated ID in both `content/metadata.xml` and the `eden-mode` entry in `mods.json`. Later releases can use the shared GitHub Actions workflow.
+Workshop item `3788578116` is registered in both `content/metadata.xml` and `mods.json`. Later releases can use the shared GitHub Actions workflow by selecting the `eden-mode` registry key.
