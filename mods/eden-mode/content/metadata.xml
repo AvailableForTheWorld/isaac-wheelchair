@@ -2,24 +2,26 @@
 <metadata>
     <name>伊甸模式 / Eden Mode</name>
     <directory>eden-mode</directory>
-    <id></id>
+    <id>3788578116</id>
     <description>
         Every compatible character receives deterministic randomized red, soul, black, or mixed
-        starting health, an Eden-style stat profile, and 0-3 random passive or familiar collectibles.
-        Fixed-health characters keep their special rules. Weak overall profiles favor powerful items;
+        starting health, an Eden-style stat profile, and 0-3 random passive or familiar
+        collectibles.
+        Fixed-health characters keep their special rules. Weak overall profiles favor powerful
+        items;
         strong profiles favor weaker items. By default, the mod also grants a random active that
         replaces the primary starting active. Mod Config Menu can preserve the original active
-        instead. Pocket actives remain untouched. Supports co-op, continued runs, and both Tainted
+        instead. Supports co-op, continued runs, and both Tainted
         Lazarus inventories.
 
         所有兼容角色都会获得可重复的随机红心、魂心、黑心或混合初始血量，以及一组伊甸式随机属性和
         0-3 个随机被动或跟班道具。固定血量角色会保留其特殊机制。整体较弱时更容易获得高品质道具，
         整体较强时更容易获得低品质道具。
         默认情况下，还会获得一个随机主动道具，并替换主主动栏中的初始道具。
-        可在 Mod Config Menu 中改为保留原版主动；口袋主动始终保留。支持联机、继续游戏和里拉撒路的两套道具栏。
+        可在 Mod Config Menu 中改为保留原版主动；支持联机、继续游戏和里拉撒路的两套道具栏。
     </description>
-    <version>1.5.0</version>
+    <version>1.5.1</version>
     <visibility>Public</visibility>
-    <tag id="Lua" />
-    <tag id="Tweaks" />
+    <tag id="Lua"/>
+    <tag id="Tweaks"/>
 </metadata>
