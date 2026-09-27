@@ -7,6 +7,12 @@
       "installDirectory": "eden-mode",
       "workshopId": "3788578116"
     },
+    "glitched-crown-practice": {
+      "displayName": "错误王冠：无尽模式 / Glitched Crown Endless Practice",
+      "workshopContentPath": "mods/glitched-crown-practice/content",
+      "installDirectory": "glitched-crown-practice",
+      "workshopId": null
+    },
     "opening-presets": {
       "displayName": "Opening Presets",
       "workshopContentPath": "mods/opening-presets/content",
@@ -18,6 +24,12 @@
       "workshopContentPath": "mods/sharingan/content",
       "installDirectory": "sharingan",
       "workshopId":  "3779320405"
+    },
+    "super-fast-donation": {
+      "displayName": "超级快速捐款 / Super Fast Donation",
+      "workshopContentPath": "mods/super-fast-donation/content",
+      "installDirectory": "super-fast-donation",
+      "workshopId": null
     },
     "wheelchair": {
       "displayName": "[轮椅] 紧急回溯 Emergency Rewind",

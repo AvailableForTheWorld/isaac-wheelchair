@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+    <name>超级快速捐款 / Super Fast Donation</name>
+    <directory>super-fast-donation</directory>
+    <id></id>
+    <description>接触普通或贪婪捐款机时，每秒完成约 100 次真实投币。所有金币会立即退还，0 金币也能捐款，并自动恢复卡币的机器。
+
+While touching a normal or Greed Donation Machine, performs about 100 real donations per second. Every coin is refunded immediately, donating works at zero coins, and jammed machines are automatically restored.</description>
+    <version>1.0.0</version>
+    <visibility>Public</visibility>
+    <tag id="Lua"/>
+    <tag id="Tweaks"/>
+</metadata>

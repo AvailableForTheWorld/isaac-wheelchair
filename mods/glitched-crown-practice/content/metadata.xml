@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+    <name>错误王冠：无尽模式 / Glitched Crown Endless Practice</name>
+    <directory>glitched-crown-practice</directory>
+    <id></id>
+    <description>新开局直接进入错误王冠（混乱王冠）的无尽选择练习，在同一个房间不断练习五选一道具的拾取时机。
+
+显示目标图标与名称、正确率，以及选到目标前后一个、两个（-1、+1、-2、+2）的独立次数。每轮从 0.7–2.0 的截断正态分布抽取移速，并显示当前移速。没有 120 次上限，也不需要探索地下室。中文练习界面内置于模组。
+
+Start a new run to enter endless, single-room Glitched Crown timing practice. Displays target item names and icons, tracks separate -2 / -1 / +1 / +2 offsets, and randomizes movement speed each round using a truncated normal distribution from 0.7 to 2.0. No 120-pick limit.</description>
+    <version>1.1.1</version>
+    <visibility>Public</visibility>
+    <tag id="Lua"/>
+    <tag id="Tweaks"/>
+</metadata>
