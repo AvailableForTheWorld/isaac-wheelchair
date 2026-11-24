@@ -4,6 +4,12 @@
 
 Wheelchair is a minimal in-game emergency rewind for The Binding of Isaac: Repentance+.
 
+## Repentance+ 1.9.7.19 compatibility
+
+Version **3.2.4** supports the input-device changes in Repentance+ **1.9.7.19** (including build J511). That update moved the keyboard index from `0` to `-2` and made physical controller indexes start at `0`. Wheelchair now reads the dedicated keyboard index first, retains the legacy keyboard fallback, and uses each player's actual controller index. See the [Input API documentation](https://wofsauge.github.io/IsaacDocs/rep/Input.html).
+
+The default **G / Right Trigger** shortcuts work without Mod Config Menu. MCM Impure's author has [reported input problems in the Repentance+ full release](https://github.com/piber20/Mod-Config-Menu-Impure/issues/8); its configuration menu may remain unavailable until MCM is updated. Wheelchair does not modify MCM or the game's global input functions.
+
 ## Default controls
 
 - **G** on the keyboard.
@@ -17,7 +23,7 @@ Wheelchair tracks the keyboard and controller buttons' pressed states every upda
 
 ## Changing the shortcuts
 
-Wheelchair supports [Mod Config Menu - Impure](https://steamcommunity.com/sharedfiles/filedetails/?id=3701683951), the maintained MCM version for Repentance and Repentance+.
+Wheelchair integrates with [Mod Config Menu - Impure](https://steamcommunity.com/sharedfiles/filedetails/?id=3701683951). The steps below require an MCM version compatible with your game build; see the compatibility note above for Repentance+ 1.9.7.19.
 
 1. Install and enable **Mod Config Menu - Impure**. Do not enable another MCM version at the same time.
 2. Start or continue a run.
@@ -44,3 +50,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Mod.ps1 -Mod wheel
 Then enable **Wheelchair Emergency Rewind** in Isaac's Mods menu.
 
 The Wheelchair installer only copies `main.lua` and `metadata.xml` into Isaac's `mods\wheelchair` directory. It never reads or writes Steam userdata or Isaac save files.
+
+## Validation
+
+From the repository root, run `lua tests/wheelchair_spec.lua` with Lua 5.3 or newer. These checks simulate the old and new input layouts, controller aliases, held buttons, custom bindings, and pause/MCM suppression. Physical G / RT input and the game's room-backup restoration still require an in-game check.

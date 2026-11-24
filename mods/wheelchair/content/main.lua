@@ -94,10 +94,16 @@ local function keyboardShortcutTriggered()
     end
     if shortcut < 0 then return false end
 
-    -- Isaac can report a controller button whose number overlaps a keyboard
-    -- key. This is the same guard used by Mod Config Menu's input helper.
-    local pressed = Input.IsButtonPressed(shortcut, 0)
-        and not Input.IsButtonPressed(shortcut % 32, 0)
+    -- Repentance+ 1.9.7.19 moved the keyboard from index 0 to -2 and
+    -- assigned index 0 to the first controller. Older builds may reject -2.
+    local keyboardAvailable, pressed = pcall(Input.IsButtonPressed, shortcut, -2)
+    if not keyboardAvailable or not pressed then
+        -- Retain the old keyboard path, rejecting the controller button that
+        -- aliases this key code. Do not apply this guard to the dedicated
+        -- keyboard: a controller button must not suppress a real key press.
+        pressed = Input.IsButtonPressed(shortcut, 0)
+            and not Input.IsButtonPressed(shortcut % 32, 0)
+    end
     local triggered = pressed and not keyboardPressed
     keyboardPressed = pressed
     return triggered
@@ -117,7 +123,8 @@ local function controllerShortcutTriggered()
         local player = Isaac.GetPlayer(index)
         local controllerIndex = player.ControllerIndex
 
-        if not activeControllerIndexes[controllerIndex] then
+        -- Negative indexes identify the keyboard, not a physical controller.
+        if controllerIndex >= 0 and not activeControllerIndexes[controllerIndex] then
             local pressed = Input.IsButtonPressed(shortcut, controllerIndex)
             if pressed and not controllerPressedByIndex[controllerIndex] then
                 triggered = true
