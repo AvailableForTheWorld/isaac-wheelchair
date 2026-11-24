@@ -21,7 +21,9 @@ concurrency:
 
 jobs:
   upload:
-    runs-on: ubuntu-latest
+    # Ubuntu 26.04's Docker 29.4.2 breaks SteamCMD's 32-bit networking.
+    # https://github.com/actions/runner-images/issues/14790
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
