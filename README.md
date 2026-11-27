@@ -8,7 +8,7 @@ This repository contains independently installable and publishable mods for The 
 | --- | --- | --- | --- |
 | `eden-mode` | Eden Mode / 伊甸模式 | [Documentation](mods/eden-mode/README.md) | [Workshop item 3788578116](https://steamcommunity.com/sharedfiles/filedetails/?id=3788578116) |
 | `glitched-crown-practice` | 错误王冠：无尽模式 / Glitched Crown Endless Practice | [Documentation](mods/glitched-crown-practice/README.md) | Local-only; first upload pending |
-| `just-win` | 假如我直接赢 | [Documentation](mods/just-win/README.md) | Local-only; first upload pending |
+| `just-win` | 假如我直接赢 | [Documentation](mods/just-win/README.md) | [Workshop item 3846675376](https://steamcommunity.com/sharedfiles/filedetails/?id=3846675376) |
 | `opening-presets` | Opening Presets | [Documentation](mods/opening-presets/README.md) | Local-only; first upload pending |
 | `sharingan` | Sharingan / 写轮眼 | [Documentation](mods/sharingan/README.md) | Local-only; first upload pending |
 | `super-fast-donation` | 超级快速捐款 / Super Fast Donation | [Documentation](mods/super-fast-donation/README.md) | Local-only; first upload pending |

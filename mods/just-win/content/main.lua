@@ -3,6 +3,7 @@ local game = Game()
 local pickupType = EntityType.ENTITY_PICKUP
 local collectibleVariant = PickupVariant.PICKUP_COLLECTIBLE
 local nullCollectible = CollectibleType.COLLECTIBLE_NULL
+local collectibles = CollectibleType
 local maxPoolRolls = 24
 local samplingPool = false
 local rules
@@ -144,22 +145,74 @@ local function onGetCollectible(_, itemId, poolType, _decrease, seed)
     end
 end
 
-local function onPickupUpdate(_, pickup)
-    if not needsReplacement(pickup.SubType) then return end
-
+local function replaceFromRoomPool(itemId, seed)
+    if not needsReplacement(itemId) then return end
     local room = game:GetRoom()
     local poolType = game:GetItemPool():GetPoolForRoom(room:GetType(), room:GetSpawnSeed())
-    local itemId = findReplacement(poolType, pickup.InitSeed)
+    return findReplacement(poolType, seed)
+end
+
+-- Explicit drops bypass item-pool selection. Upgrade their subtype before
+-- the engine builds the pedestal and its native options.
+local function onEntitySpawn(_, entityType, variant, subtype, _position, _velocity, _spawner, seed)
+    if entityType ~= pickupType or variant ~= collectibleVariant then return end
+    local itemId = replaceFromRoomPool(subtype, seed)
+    if itemId then return { entityType, variant, itemId, seed } end
+end
+
+local function onRoomEntitySpawn(_, entityType, variant, subtype, _gridIndex, seed)
+    if entityType ~= pickupType or variant ~= collectibleVariant then return end
+    local itemId = replaceFromRoomPool(subtype, seed)
+    if itemId then return { entityType, variant, itemId } end
+end
+
+local function playersCanRotatePedestals()
+    for index = 0, game:GetNumPlayers() - 1 do
+        local player = Isaac.GetPlayer(index)
+        local playerType = player:GetPlayerType()
+        if playerType == PlayerType.PLAYER_ISAAC_B
+            or (playerType == PlayerType.PLAYER_ISAAC and player:HasCollectible(collectibles.COLLECTIBLE_BIRTHRIGHT))
+            or player:HasCollectible(collectibles.COLLECTIBLE_GLITCHED_CROWN)
+            or player:HasCollectible(collectibles.COLLECTIBLE_BINGE_EATER) then
+            return true
+        end
+    end
+    return false
+end
+
+local function onPickupUpdate(_, pickup)
+    -- Morph recreates the pedestal's options. Pool rolls have already been
+    -- filtered, so do not touch a native cycle or its Binge Eater food slot.
+    local data = pickup:GetData()
+    if data.JustWinKeepCycle then return end
+    if playersCanRotatePedestals() then
+        data.JustWinKeepCycle = true
+        return
+    end
+
+    if not needsReplacement(pickup.SubType) then return end
+    if pickup.GetCollectibleCycle then
+        local cycle = pickup:GetCollectibleCycle()
+        if #cycle > 1 or (#cycle == 1 and cycle[1] ~= pickup.SubType) then return end
+    end
+
+    local itemId = replaceFromRoomPool(pickup.SubType, pickup.InitSeed)
     if not itemId then return end
 
     local price, shopItemId, autoUpdatePrice = pickup.Price, pickup.ShopItemId, pickup.AutoUpdatePrice
     local optionsIndex = pickup.OptionsPickupIndex
     local wait, timeout = pickup.Wait, pickup.Timeout
-    pickup:Morph(pickupType, collectibleVariant, itemId, true, true, true)
+    pickup:Morph(pickupType, collectibleVariant, itemId, true, true, false)
     pickup.Price, pickup.ShopItemId, pickup.AutoUpdatePrice = price, shopItemId, autoUpdatePrice
     pickup.OptionsPickupIndex = optionsIndex
     pickup.Wait, pickup.Timeout = wait, timeout
     pickup.Touched = false
+end
+
+local function onSoulOfIsaac()
+    for _, pickup in ipairs(Isaac.FindByType(pickupType, collectibleVariant)) do
+        pickup:GetData().JustWinKeepCycle = true
+    end
 end
 
 local function updateRoomPickups()
@@ -178,7 +231,10 @@ local function onGameStarted()
 end
 
 mod:AddCallback(ModCallbacks.MC_POST_GET_COLLECTIBLE, onGetCollectible)
+mod:AddCallback(ModCallbacks.MC_PRE_ENTITY_SPAWN, onEntitySpawn)
+mod:AddCallback(ModCallbacks.MC_PRE_ROOM_ENTITY_SPAWN, onRoomEntitySpawn)
 mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, updateRoomPickups)
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, onGameStarted)
 mod:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, resetRules)
 mod:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, onPickupUpdate, collectibleVariant)
+mod:AddCallback(ModCallbacks.MC_USE_CARD, onSoulOfIsaac, Card.CARD_SOUL_ISAAC)

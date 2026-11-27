@@ -9,6 +9,7 @@ local function equal(actual, expected, message)
 end
 
 local POST_GET, NEW_ROOM, GAME_STARTED, PICKUP_UPDATE, PRE_GAME_EXIT = 1, 2, 3, 4, 5
+local PRE_ENTITY_SPAWN, PRE_ROOM_ENTITY_SPAWN, USE_CARD = 6, 7, 8
 local PICKUP, COLLECTIBLE = 5, 100
 local POOL_NULL, TREASURE, SHOP, ROOM_SHOP = -1, 0, 1, 2
 local LOW, Q1, Q2, Q3, Q4, HIDDEN, LOCKED = 1, 2, 3, 4, 5, 6, 7
@@ -17,17 +18,23 @@ local fixedPieces = {
     COLLECTIBLE_BUM_FRIEND = 10, COLLECTIBLE_DARK_BUM = 11, COLLECTIBLE_KEY_BUM = 12,
     COLLECTIBLE_NECRONOMICON = 13, COLLECTIBLE_MISSING_PAGE_2 = 14, COLLECTIBLE_LEO = 15,
 }
-local collectibleTypes = { COLLECTIBLE_NULL = 0 }
+local BIRTHRIGHT, BINGE_EATER, GLITCHED_CROWN = 619, 664, 689
+local SOUL_ISAAC = 81
+local ISAAC, MAGDALENE, TAINTED_ISAAC = 0, 1, 21
+local collectibleTypes = {
+    COLLECTIBLE_NULL = 0, COLLECTIBLE_BIRTHRIGHT = BIRTHRIGHT,
+    COLLECTIBLE_BINGE_EATER = BINGE_EATER, COLLECTIBLE_GLITCHED_CROWN = GLITCHED_CROWN,
+}
 for name, id in pairs(fixedPieces) do collectibleTypes[name] = id end
 local itemTags = {
     TAG_SYRINGE = 1 << 1, TAG_MOM = 1 << 2, TAG_GUPPY = 1 << 5, TAG_FLY = 1 << 6,
     TAG_BOB = 1 << 7, TAG_MUSHROOM = 1 << 8, TAG_BABY = 1 << 9, TAG_ANGEL = 1 << 10,
     TAG_DEVIL = 1 << 11, TAG_POOP = 1 << 12, TAG_BOOK = 1 << 13, TAG_SPIDER = 1 << 14,
-    TAG_QUEST = 1 << 15, TAG_NO_GREED = 1 << 17,
+    TAG_QUEST = 1 << 15, TAG_NO_GREED = 1 << 17, TAG_FOOD = 1 << 18,
 }
 
 local function loadMod(draws, setup)
-    local h = { callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP }
+    local h = { callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP, players = {} }
     local config = {}
     local function addItem(quality, tags, hidden, achievement, available)
         local id = #config + 1
@@ -89,11 +96,14 @@ local function loadMod(draws, setup)
         ModCallbacks = {
             MC_POST_GET_COLLECTIBLE = POST_GET, MC_POST_NEW_ROOM = NEW_ROOM,
             MC_POST_GAME_STARTED = GAME_STARTED, MC_POST_PICKUP_UPDATE = PICKUP_UPDATE,
-            MC_PRE_GAME_EXIT = PRE_GAME_EXIT,
+            MC_PRE_GAME_EXIT = PRE_GAME_EXIT, MC_PRE_ENTITY_SPAWN = PRE_ENTITY_SPAWN,
+            MC_PRE_ROOM_ENTITY_SPAWN = PRE_ROOM_ENTITY_SPAWN, MC_USE_CARD = USE_CARD,
         },
         EntityType = { ENTITY_PICKUP = PICKUP },
         PickupVariant = { PICKUP_COLLECTIBLE = COLLECTIBLE },
         CollectibleType = collectibleTypes,
+        PlayerType = { PLAYER_ISAAC = ISAAC, PLAYER_MAGDALENE = MAGDALENE, PLAYER_ISAAC_B = TAINTED_ISAAC },
+        Card = { CARD_SOUL_ISAAC = SOUL_ISAAC },
         ItemPoolType = { POOL_TREASURE = TREASURE, POOL_SHOP = SHOP, POOL_NULL = POOL_NULL },
         ItemConfig = itemTags,
         RegisterMod = function(name, api)
@@ -102,10 +112,15 @@ local function loadMod(draws, setup)
             return mod
         end,
         Game = function()
-            return { GetItemPool = function() return pool end, GetRoom = function() return room end }
+            return {
+                GetItemPool = function() return pool end,
+                GetRoom = function() return room end,
+                GetNumPlayers = function() return #h.players end,
+            }
         end,
         Isaac = {
             GetItemConfig = function() return itemConfig end,
+            GetPlayer = function(index) return assert(h.players[index + 1], "player missing") end,
             FindByType = function(entityType, variant)
                 equal(entityType, PICKUP, "scan pickup entities")
                 equal(variant, COLLECTIBLE, "scan collectible pedestals")
@@ -132,6 +147,7 @@ local function loadMod(draws, setup)
 end
 
 local function pedestal(id)
+    local data = {}
     local pickup = {
         SubType = id, InitSeed = 123456,
         Price = 15, OptionsPickupIndex = 9, AutoUpdatePrice = false, ShopItemId = 2, Touched = true,
@@ -139,17 +155,26 @@ local function pedestal(id)
         morphs = 0,
     }
     function pickup:ToPickup() return self end
+    function pickup:GetData() return data end
     function pickup:Morph(entityType, variant, replacement, keepPrice, keepSeed, ignoreModifiers)
         equal(entityType, PICKUP, "morph stays a pickup")
         equal(variant, COLLECTIBLE, "morph stays a collectible pedestal")
         equal(keepPrice, true, "morph keeps price")
         equal(keepSeed, true, "morph keeps seed")
-        equal(ignoreModifiers, true, "morph uses the exact replacement subtype")
+        equal(ignoreModifiers, false, "morph leaves engine item modifiers enabled")
         self.SubType, self.morphs = replacement, self.morphs + 1
+        self.nativeChoices = nil
         self.Price, self.OptionsPickupIndex, self.AutoUpdatePrice, self.ShopItemId = 0, 0, true, -1
         self.Wait, self.Timeout = 0, -1
     end
     return pickup
+end
+
+local function player(playerType, heldItem)
+    return {
+        GetPlayerType = function() return playerType end,
+        HasCollectible = function(_, item) return heldItem ~= nil and item == heldItem end,
+    }
 end
 
 for _, low in ipairs({ LOW, Q1, Q2 }) do
@@ -197,6 +222,85 @@ roomItem.SubType = Q1
 equal(play.callbacks[PICKUP_UPDATE].filter, COLLECTIBLE, "update is filtered to collectible pickups")
 play.run(PICKUP_UPDATE, roomItem)
 equal(roomItem.SubType, Q4, "pickup update replaces a later low-quality reroll")
+
+local spawn = loadMod({ Q3, Q4 })
+spawn.players = { player(ISAAC, BIRTHRIGHT) }
+local layout = spawn.run(PRE_ROOM_ENTITY_SPAWN, PICKUP, COLLECTIBLE, LOW, 50, 10031)
+equal(#layout, 3, "layout spawn override contains the expected fields")
+equal(layout[1], PICKUP, "layout spawn keeps entity type")
+equal(layout[2], COLLECTIBLE, "layout spawn keeps variant")
+equal(layout[3], Q3, "layout spawn upgrades a fixed low item before pickup creation")
+local spawned = spawn.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q1, nil, nil, nil, 10032)
+equal(#spawned, 4, "dynamic spawn override contains the expected fields")
+equal(spawned[1], PICKUP, "dynamic spawn keeps entity type")
+equal(spawned[2], COLLECTIBLE, "dynamic spawn keeps variant")
+equal(spawned[3], Q4, "dynamic spawn upgrades a fixed low item before pickup creation")
+equal(spawned[4], 10032, "dynamic spawn preserves original seed")
+for _, id in ipairs({ 0, Q3, QUEST, UNKNOWN }) do
+    equal(spawn.run(PRE_ROOM_ENTITY_SPAWN, PICKUP, COLLECTIBLE, id, 50, 10031), nil,
+        "layout leaves random placeholder and protected IDs native")
+    equal(spawn.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, id, nil, nil, nil, 10032), nil,
+        "dynamic spawn leaves random placeholder and protected IDs native")
+end
+equal(spawn.run(PRE_ENTITY_SPAWN, PICKUP, 20, LOW, nil, nil, nil, 10032), nil,
+    "dynamic spawn filters out other pickup variants")
+equal(spawn.run(PRE_ROOM_ENTITY_SPAWN, 99, COLLECTIBLE, LOW, 50, 10031), nil,
+    "layout spawn filters out other entity types")
+
+local cycleCases = {
+    { name = "Isaac Birthright", owner = player(ISAAC, BIRTHRIGHT), alternates = { Q2 } },
+    { name = "Binge Eater", owner = player(MAGDALENE, BINGE_EATER), alternates = { Q1 } },
+    { name = "Glitched Crown", owner = player(MAGDALENE, GLITCHED_CROWN), alternates = { Q2, Q4, LOW, Q3 } },
+    { name = "Tainted Isaac", owner = player(TAINTED_ISAAC), alternates = { LOW } },
+}
+for _, case in ipairs(cycleCases) do
+    local active = loadMod({ Q4 }, function(_, config) config[Q1].Tags = itemTags.TAG_FOOD end)
+    active.players = { player(MAGDALENE), case.owner }
+    local primary = active.run(POST_GET, LOW, SHOP, true, 901)
+    equal(primary, Q4, case.name .. " still upgrades pooled low draws")
+    local cycling = pedestal(primary)
+    cycling.nativeChoices = { primary, table.unpack(case.alternates) }
+    active.pickups = { cycling }
+    active.run(GAME_STARTED, false)
+    for _, id in ipairs(case.alternates) do
+        cycling.SubType = id
+        active.run(PICKUP_UPDATE, cycling)
+        equal(cycling.SubType, id, case.name .. " keeps the native alternate visible")
+    end
+    active.players[2] = nil
+    cycling.SubType = case.alternates[1]
+    active.run(NEW_ROOM)
+    active.run(PICKUP_UPDATE, cycling)
+    equal(cycling.SubType, case.alternates[1], case.name .. " existing alternate survives losing its effect")
+    equal(#cycling.nativeChoices, #case.alternates + 1, case.name .. " retains the native cycle")
+    equal(cycling.morphs, 0, case.name .. " cycle is left intact")
+end
+
+local otherBirthright = loadMod({ Q3 })
+otherBirthright.players = { player(MAGDALENE, BIRTHRIGHT) }
+local static = pedestal(LOW)
+otherBirthright.run(PICKUP_UPDATE, static)
+equal(static.SubType, Q3, "non-Isaac Birthright does not bypass the static-pedestal fallback")
+
+local soul = loadMod({ Q4 })
+local cardCycle = pedestal(Q3)
+soul.pickups = { cardCycle }
+equal(soul.callbacks[USE_CARD].filter, SOUL_ISAAC, "card callback only covers Soul of Isaac")
+soul.run(USE_CARD, SOUL_ISAAC, player(ISAAC))
+cardCycle.SubType = Q2
+soul.run(PICKUP_UPDATE, cardCycle)
+equal(cardCycle.SubType, Q2, "Soul of Isaac's alternate survives after the consumable is gone")
+equal(cardCycle.morphs, 0, "Soul of Isaac cycle is left intact")
+local afterCard = pedestal(LOW)
+soul.run(PICKUP_UPDATE, afterCard)
+equal(afterCard.SubType, Q4, "a separate pedestal spawned later still receives the static fallback")
+
+local extension = loadMod()
+local extensionCycle = pedestal(Q2)
+function extensionCycle:GetCollectibleCycle() return { Q3 } end
+extension.run(PICKUP_UPDATE, extensionCycle)
+equal(extensionCycle.SubType, Q2, "extension-reported alternate protects the native cycle")
+equal(extensionCycle.morphs, 0, "extension-reported cycle is left intact")
 
 local noRoomPool = loadMod({ Q3 })
 noRoomPool.roomPool = POOL_NULL

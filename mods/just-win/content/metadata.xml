@@ -6,7 +6,7 @@
     <description>1.房间里的普通低品质道具会换成 3 或 4 级道具。
         2.保留任务道具和凑齐变身套装所需的低品质道具。
         3.打标的时候也会为高品质候选较少的存档补充尚未解锁的 3、4 级道具。</description>
-    <version>1.1.4</version>
+    <version>1.1.5</version>
     <visibility>Public</visibility>
     <tag id="Lua"/>
     <tag id="Items"/>
