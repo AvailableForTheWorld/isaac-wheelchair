@@ -13,6 +13,12 @@
       "installDirectory": "glitched-crown-practice",
       "workshopId": null
     },
+    "just-win": {
+      "displayName": "假如我直接赢",
+      "workshopContentPath": "mods/just-win/content",
+      "installDirectory": "just-win",
+      "workshopId": null
+    },
     "opening-presets": {
       "displayName": "Opening Presets",
       "workshopContentPath": "mods/opening-presets/content",

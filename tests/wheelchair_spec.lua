@@ -9,6 +9,7 @@ end
 
 local G, R, RT = 71, 82, 12
 local UPDATE = 1
+local MENU_RT = 27
 
 local function loadMod(options)
     options = options or {}
@@ -16,6 +17,8 @@ local function loadMod(options)
     local state = {
         keyboard = {},
         controllers = {},
+        buttonValues = {},
+        actions = {},
         players = options.players or { keyboardIndex },
         paused = false,
         commands = {},
@@ -70,14 +73,29 @@ local function loadMod(options)
         return buttons ~= nil and buttons[button % 32] == true
     end
 
+    local input = { IsButtonPressed = buttonPressed }
+    if not options.omitAnalogAPI then
+        input.GetButtonValue = function(button, controllerIndex)
+            local values = state.buttonValues[controllerIndex]
+            return values and values[button] or 0
+        end
+    end
+    if not options.omitActionAPI then
+        input.IsActionPressed = function(action, controllerIndex)
+            local actions = state.actions[controllerIndex]
+            return actions ~= nil and actions[action] == true
+        end
+    end
+
     local env = setmetatable({
         REPENTANCE_PLUS = options.repentancePlus ~= false,
         Keyboard = { KEY_G = G },
+        ButtonAction = { ACTION_MENURT = MENU_RT },
         ModCallbacks = { MC_POST_UPDATE = UPDATE },
         Options = { Language = "en" },
         RegisterMod = function() return mod end,
         Game = function() return game end,
-        Input = { IsButtonPressed = buttonPressed },
+        Input = input,
         Isaac = {
             GetPlayer = function(index)
                 assert(state.players[index + 1] ~= nil, "missing player")
@@ -102,6 +120,14 @@ local function loadMod(options)
     function state:controller(index, button, pressed)
         self.controllers[index] = self.controllers[index] or {}
         self.controllers[index][button] = pressed
+    end
+    function state:analog(index, button, value)
+        self.buttonValues[index] = self.buttonValues[index] or {}
+        self.buttonValues[index][button] = value
+    end
+    function state:action(index, action, pressed)
+        self.actions[index] = self.actions[index] or {}
+        self.actions[index][action] = pressed
     end
     state.mcm = mcm
     return state
@@ -148,6 +174,95 @@ controllers:tick()
 controllers:controller(0, RT, true)
 controllers:tick()
 equal(#controllers.commands, 3, "controller release rearms RT")
+
+-- Newer Repentance+ builds can report RT as an analog value or menu action
+-- while its raw IsButtonPressed value stays false.
+local analog = loadMod({ players = { 0 } })
+analog:analog(0, RT, 0.49)
+analog:analog(1, RT, 1)
+analog:tick()
+equal(#analog.commands, 0, "ignore subthreshold RT and another controller's analog value")
+analog:analog(0, RT, 0.5)
+analog:tick()
+equal(#analog.commands, 1, "analog RT activates at the threshold without raw input")
+analog:analog(0, RT, 0.9)
+analog:tick()
+equal(#analog.commands, 1, "holding analog RT does not repeat")
+analog:analog(0, RT, 0.49)
+analog:tick()
+analog:analog(0, RT, 0.51)
+analog:tick()
+equal(#analog.commands, 2, "releasing below threshold rearms analog RT")
+
+local menuAction = loadMod({ players = { 1 } })
+menuAction:action(0, MENU_RT, true)
+menuAction:tick()
+equal(#menuAction.commands, 0, "ignore another controller's RT action")
+menuAction:action(1, MENU_RT, true)
+menuAction:tick()
+equal(#menuAction.commands, 1, "assigned controller RT action works without raw input")
+menuAction:tick()
+equal(#menuAction.commands, 1, "holding the RT action does not repeat")
+menuAction:action(1, MENU_RT, false)
+menuAction:tick()
+menuAction:action(1, MENU_RT, true)
+menuAction:tick()
+equal(#menuAction.commands, 2, "release rearms the RT action")
+
+local legacyKeyboardAction = loadMod({ keyboardIndex = 0, players = { 0 }, repentancePlus = false })
+legacyKeyboardAction:action(0, MENU_RT, true)
+legacyKeyboardAction:tick()
+equal(#legacyKeyboardAction.commands, 0, "legacy keyboard MENU RT binding cannot impersonate a trigger")
+
+local combinedRT = loadMod({ players = { 1 } })
+combinedRT:controller(1, RT, true)
+combinedRT:tick()
+combinedRT:controller(1, RT, false)
+combinedRT:analog(1, RT, 0.8)
+combinedRT:tick()
+combinedRT:analog(1, RT, 0)
+combinedRT:action(1, MENU_RT, true)
+combinedRT:tick()
+equal(#combinedRT.commands, 1, "switching RT reporting channels does not create extra edges")
+combinedRT:action(1, MENU_RT, false)
+combinedRT:tick()
+combinedRT:action(1, MENU_RT, true)
+combinedRT:tick()
+equal(#combinedRT.commands, 2, "RT rearms after every reporting channel is released")
+
+local customController = loadMod({ mcm = true, players = { 1 }, config = {
+    KeyboardShortcut = -1, ControllerShortcut = 4,
+} })
+customController:analog(1, RT, 1)
+customController:analog(1, 4, 1)
+customController:action(1, MENU_RT, true)
+customController:tick()
+equal(#customController.commands, 0, "custom button does not inherit RT action or analog fallbacks")
+customController:controller(1, 4, true)
+customController:tick()
+equal(#customController.commands, 1, "custom controller button retains its raw binding")
+
+local unboundRT = loadMod({ mcm = true, players = { 1 }, config = {
+    KeyboardShortcut = -1, ControllerShortcut = -1,
+} })
+unboundRT:controller(1, RT, true)
+unboundRT:analog(1, RT, 1)
+unboundRT:action(1, MENU_RT, true)
+unboundRT:tick()
+equal(#unboundRT.commands, 0, "unbound controller ignores all RT reporting channels")
+
+local olderInput = loadMod({ players = { 0 }, omitAnalogAPI = true, omitActionAPI = true })
+olderInput:controller(0, RT, true)
+olderInput:tick()
+equal(#olderInput.commands, 1, "raw RT works when optional input APIs are unavailable")
+local actionOnly = loadMod({ players = { 1 }, omitAnalogAPI = true })
+actionOnly:action(1, MENU_RT, true)
+actionOnly:tick()
+equal(#actionOnly.commands, 1, "RT action remains usable without the analog API")
+local analogOnly = loadMod({ players = { 0 }, omitActionAPI = true })
+analogOnly:analog(0, RT, 1)
+analogOnly:tick()
+equal(#analogOnly.commands, 1, "analog RT remains usable without the action API")
 
 local simultaneous = loadMod({ players = { -2, 0 } })
 simultaneous.keyboard[G] = true

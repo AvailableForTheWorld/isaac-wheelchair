@@ -2,7 +2,10 @@ local Wheelchair = RegisterMod("Wheelchair Emergency Rewind", 1)
 local game = Game()
 
 local DEFAULT_KEYBOARD_SHORTCUT = Keyboard.KEY_G
-local DEFAULT_CONTROLLER_SHORTCUT = 12 -- Controller.TRIGGER_RIGHT in MCM
+local RIGHT_TRIGGER_BUTTON = 12 -- Controller.TRIGGER_RIGHT in MCM
+local DEFAULT_CONTROLLER_SHORTCUT = RIGHT_TRIGGER_BUTTON
+local RIGHT_TRIGGER_ACTION = ButtonAction and ButtonAction.ACTION_MENURT
+local RIGHT_TRIGGER_THRESHOLD = 0.5
 local MCM_CATEGORY = "Wheelchair"
 local MCM_SUBCATEGORY = "Controls"
 
@@ -109,6 +112,26 @@ local function keyboardShortcutTriggered()
     return triggered
 end
 
+local function controllerButtonPressed(shortcut, controllerIndex)
+    if Input.IsButtonPressed(shortcut, controllerIndex) then return true end
+    if shortcut ~= RIGHT_TRIGGER_BUTTON then return false end
+
+    -- Some controller paths expose the trigger as an axis or a game action.
+    if type(Input.GetButtonValue) == "function" then
+        local ok, value = pcall(Input.GetButtonValue, shortcut, controllerIndex)
+        if ok and type(value) == "number" and value >= RIGHT_TRIGGER_THRESHOLD then
+            return true
+        end
+    end
+
+    -- In older builds index 0 can be a keyboard with its own Menu RT binding.
+    -- Only use the action fallback on indexes that always identify controllers.
+    if controllerIndex > 0 and RIGHT_TRIGGER_ACTION and Input.IsActionPressed then
+        return Input.IsActionPressed(RIGHT_TRIGGER_ACTION, controllerIndex)
+    end
+    return false
+end
+
 local function controllerShortcutTriggered()
     local shortcut = getConfiguredShortcut("ControllerShortcut", DEFAULT_CONTROLLER_SHORTCUT)
     if shortcut ~= trackedControllerShortcut then
@@ -125,7 +148,7 @@ local function controllerShortcutTriggered()
 
         -- Negative indexes identify the keyboard, not a physical controller.
         if controllerIndex >= 0 and not activeControllerIndexes[controllerIndex] then
-            local pressed = Input.IsButtonPressed(shortcut, controllerIndex)
+            local pressed = controllerButtonPressed(shortcut, controllerIndex)
             if pressed and not controllerPressedByIndex[controllerIndex] then
                 triggered = true
             end

@@ -21,6 +21,8 @@ There is no custom timeline, multi-room cache, state reconstruction, collectible
 
 Wheelchair tracks the keyboard and controller buttons' pressed states every update to detect one reliable rising edge per physical press, including analog triggers such as RT. It invokes `rewind` immediately. There is no timer, hold duration, or input cooldown in the mod.
 
+Version **3.2.5** improves RT detection for Repentance+ **1.9.7.20**. If the raw button check misses the press, Wheelchair also reads the trigger's analog value. For controller indexes above zero it can also read Isaac's **Menu RT** action, which uses RT by default. These readings share one pressed state, so holding the trigger still sends one rewind request.
+
 ## Changing the shortcuts
 
 Wheelchair integrates with [Mod Config Menu - Impure](https://steamcommunity.com/sharedfiles/filedetails/?id=3701683951). The steps below require an MCM version compatible with your game build; see the compatibility note above for Repentance+ 1.9.7.19.
