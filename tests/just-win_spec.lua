@@ -10,6 +10,7 @@ end
 
 local POST_GET, NEW_ROOM, GAME_STARTED, PICKUP_UPDATE, PRE_GAME_EXIT = 1, 2, 3, 4, 5
 local PRE_ENTITY_SPAWN, PRE_ROOM_ENTITY_SPAWN, USE_CARD, POST_UPDATE = 6, 7, 8, 9
+local PRE_USE_ITEM = 10
 local PICKUP, COLLECTIBLE = 5, 100
 local POOL_NULL, TREASURE, SHOP, ROOM_SHOP = -1, 0, 1, 2
 local LOW, Q1, Q2, Q3, Q4, HIDDEN, LOCKED = 1, 2, 3, 4, 5, 6, 7
@@ -19,11 +20,14 @@ local fixedPieces = {
     COLLECTIBLE_NECRONOMICON = 13, COLLECTIBLE_MISSING_PAGE_2 = 14, COLLECTIBLE_LEO = 15,
 }
 local BIRTHRIGHT, BINGE_EATER, GLITCHED_CROWN = 619, 664, 689
+local D6, DIPLOPIA, CROOKED_PENNY, SPINDOWN = 105, 347, 485, 723
 local SOUL_ISAAC = 81
 local ISAAC, MAGDALENE, TAINTED_ISAAC = 0, 1, 21
 local collectibleTypes = {
     COLLECTIBLE_NULL = 0, COLLECTIBLE_BIRTHRIGHT = BIRTHRIGHT,
     COLLECTIBLE_BINGE_EATER = BINGE_EATER, COLLECTIBLE_GLITCHED_CROWN = GLITCHED_CROWN,
+    COLLECTIBLE_D6 = D6, COLLECTIBLE_DIPLOPIA = DIPLOPIA,
+    COLLECTIBLE_CROOKED_PENNY = CROOKED_PENNY, COLLECTIBLE_SPINDOWN_DICE = SPINDOWN,
 }
 for name, id in pairs(fixedPieces) do collectibleTypes[name] = id end
 local itemTags = {
@@ -33,12 +37,19 @@ local itemTags = {
     TAG_QUEST = 1 << 15, TAG_NO_GREED = 1 << 17, TAG_FOOD = 1 << 18,
 }
 
+local function copy(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, entry in pairs(value) do result[key] = copy(entry) end
+    return result
+end
+
 local function loadMod(draws, setup, options)
     options = options or {}
     local h = {
         callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP, players = {},
         removed = {}, absentFromPool = {}, startSeed = options.startSeed or 123, storage = options.storage or {},
-        roomSeed = 456, roomDesc = { SafeGridIndex = 10, Data = { Name = "Shop" } },
+        frame = 0, roomSeed = 456, roomDesc = { SafeGridIndex = 10, Data = { Name = "Shop" } },
     }
     local config = {}
     local function addItem(quality, tags, hidden, achievement, available)
@@ -108,14 +119,15 @@ local function loadMod(draws, setup, options)
         h.storage.value = value
     end
     local function encodeHistory(data)
-        return data.seed .. ":" .. table.concat(data.items, ",")
+        -- Save by value behind an opaque string, then load in a separate harness.
+        local encoded = h.storage.encoded or {}
+        h.storage.encoded = encoded
+        encoded[#encoded + 1] = copy(data)
+        return tostring(#encoded)
     end
     local function decodeHistory(raw)
-        local seed, list = raw:match("^(%d+):([%d,]*)$")
-        assert(seed, "invalid mock save")
-        local items = {}
-        for id in list:gmatch("%d+") do items[#items + 1] = tonumber(id) end
-        return { seed = tonumber(seed), items = items }
+        local saved = h.storage.encoded and h.storage.encoded[tonumber(raw)]
+        return copy(assert(saved, "invalid mock save"))
     end
     local function addCallback(_, callback, fn, filter)
         assert(h.callbacks[callback] == nil, "callback registered twice")
@@ -131,7 +143,7 @@ local function loadMod(draws, setup, options)
             MC_POST_GAME_STARTED = GAME_STARTED, MC_POST_PICKUP_UPDATE = PICKUP_UPDATE,
             MC_PRE_GAME_EXIT = PRE_GAME_EXIT, MC_PRE_ENTITY_SPAWN = PRE_ENTITY_SPAWN,
             MC_PRE_ROOM_ENTITY_SPAWN = PRE_ROOM_ENTITY_SPAWN, MC_USE_CARD = USE_CARD,
-            MC_POST_UPDATE = POST_UPDATE,
+            MC_POST_UPDATE = POST_UPDATE, MC_PRE_USE_ITEM = PRE_USE_ITEM,
         },
         EntityType = { ENTITY_PICKUP = PICKUP },
         PickupVariant = { PICKUP_COLLECTIBLE = COLLECTIBLE },
@@ -154,12 +166,14 @@ local function loadMod(draws, setup, options)
                 GetItemPool = function() return pool end,
                 GetRoom = function() return room end,
                 GetLevel = function() return level end,
+                GetFrameCount = function() return h.frame end,
                 GetNumPlayers = function() return #h.players end,
                 GetSeeds = function() return { GetStartSeed = function() return h.startSeed end } end,
             }
         end,
         Isaac = {
             GetItemConfig = function() return itemConfig end,
+            GetFrameCount = function() return h.frame end,
             GetPlayer = function(index) return assert(h.players[index + 1], "player missing") end,
             FindByType = function(entityType, variant)
                 equal(entityType, PICKUP, "scan pickup entities")
@@ -187,10 +201,10 @@ local function loadMod(draws, setup, options)
     return h
 end
 
-local function pedestal(id)
+local function pedestal(id, seed, x, y)
     local data = {}
     local pickup = {
-        SubType = id, InitSeed = 123456,
+        SubType = id, InitSeed = seed or 123456, Position = { X = x or 100, Y = y or 80 },
         Price = 15, OptionsPickupIndex = 9, AutoUpdatePrice = false, ShopItemId = 2, Touched = true,
         Wait = 20, Timeout = 100,
         morphs = 0,
@@ -654,6 +668,80 @@ local function pick(harness, id)
     collector.inventory[id] = true
     harness.run(POST_UPDATE)
 end
+
+local spindown = loadMod({ Q4 })
+local spun = pedestal(Q3, 101)
+spindown.pickups = { spun }
+equal(spindown.run(PRE_USE_ITEM, SPINDOWN, nil, player(ISAAC), 0, 0, 0), nil,
+    "Spindown Dice keeps the native item-use effect")
+spun.SubType = Q2
+spindown.run(PICKUP_UPDATE, spun)
+equal(spun.SubType, Q2, "the exact low-quality Spindown outcome survives the first pickup update")
+equal(spindown.run(POST_GET, LOW, SHOP, true, 872), Q4,
+    "a random draw during a Spindown use still goes through the quality filter")
+spindown.run(POST_UPDATE)
+spindown.frame = spindown.frame + 4
+spindown.run(PICKUP_UPDATE, spun)
+equal(spun.morphs, 0, "the low-quality result survives after the use has finished")
+spindown.run(PRE_GAME_EXIT, true)
+
+local resumedSpin = loadMod({ Q4 }, nil, { storage = spindown.storage, startSeed = spindown.startSeed })
+local savedSpin = pedestal(Q2, 101)
+resumedSpin.pickups = { savedSpin }
+resumedSpin.run(GAME_STARTED, true)
+equal(savedSpin.SubType, Q2, "Continue preserves the exact Spindown result on the restored pedestal")
+equal(savedSpin.morphs, 0, "the restored pedestal is untouched")
+resumedSpin.run(PRE_USE_ITEM, D6, nil, player(ISAAC), 0, 0, 0)
+savedSpin.SubType = Q1
+resumedSpin.run(PICKUP_UPDATE, savedSpin)
+equal(savedSpin.SubType, Q4, "a later unrelated reroll on that pedestal still upgrades a low result")
+
+for _, active in ipairs({ DIPLOPIA, CROOKED_PENNY }) do
+    local duplicating = loadMod({ Q3, Q4 })
+    pick(duplicating, Q2)
+    local duplicator = duplicating.players[1]
+    local source = pedestal(Q2, 201)
+    duplicating.pickups = { source }
+    equal(duplicating.run(PRE_USE_ITEM, active, nil, duplicator, 0, 0, 0), nil,
+        "duplication keeps the native item-use effect")
+    local copied = active == DIPLOPIA and pedestal(Q2, 202) or pedestal(Q2, source.InitSeed, 200, 80)
+    equal(duplicating.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q2, copied.Position, nil, nil, copied.InitSeed), nil,
+        "a copy matching its source position or seed can spawn even if it is low quality and already collected")
+    local stray = pedestal(Q1, 203, 230, 80)
+    local replacement = duplicating.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q1, stray.Position, nil, nil, stray.InitSeed)
+    equal(replacement and replacement[3], Q3, "an unrelated spawn during duplication still filters")
+    local sameItemElsewhere = pedestal(Q2, 204, 330, 80)
+    local otherReplacement = duplicating.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q2,
+        sameItemElsewhere.Position, nil, nil, sameItemElsewhere.InitSeed)
+    equal(otherReplacement and otherReplacement[3], Q4, "the same item at a different position and seed still filters")
+    duplicating.pickups = { source, copied }
+    duplicating.run(POST_UPDATE)
+    duplicating.frame = duplicating.frame + 4
+    duplicating.run(PICKUP_UPDATE, copied)
+    equal(copied.SubType, Q2, "the copied item survives pickup updates after the use finishes")
+    equal(copied.morphs, 0, "the completed copy never morphs to a different item")
+    equal(duplicating.run(POST_GET, Q2, SHOP, true, 872), LOCKED,
+        "an exact copy does not restore the acquired item to random draws")
+end
+
+local crownSpin = loadMod({ Q4, Q3 })
+crownSpin.players = { player(ISAAC, GLITCHED_CROWN) }
+crownSpin.pickups = { pedestal(Q3, 301) }
+crownSpin.run(PRE_USE_ITEM, SPINDOWN, nil, crownSpin.players[1], 0, 0, 0)
+local firstAlternate = crownSpin.run(POST_GET, LOW, SHOP, false, 872)
+local secondAlternate = crownSpin.run(POST_GET, LOW, SHOP, false, 872)
+equal(crownSpin.config[firstAlternate].Quality >= 3, true, "Crown's first random alternate still passes the filter")
+equal(crownSpin.config[secondAlternate].Quality >= 3, true, "Crown's next random alternate still passes the filter")
+equal(firstAlternate == secondAlternate, false, "an ongoing item use does not disable Crown offer deduplication")
+
+local lostCrown = loadMod({ Q4 })
+lostCrown.players = { player(ISAAC, GLITCHED_CROWN) }
+local stillCycling = pedestal(Q3, 401)
+lostCrown.run(PICKUP_UPDATE, stillCycling)
+lostCrown.players = {}
+stillCycling.SubType = Q2
+lostCrown.run(PICKUP_UPDATE, stillCycling)
+equal(stillCycling.SubType, Q2, "a cycle stays protected when Crown is lost before its first low alternate")
 
 local exhausted = loadMod()
 pick(exhausted, Q3)

@@ -10,6 +10,9 @@ local samplingPool = false
 local rules
 local collected
 local offersByRoom = {}
+local directedItems = {}
+local directedUse
+local directedDirty = false
 
 local transformationTags = {
     ItemConfig.TAG_SYRINGE, ItemConfig.TAG_MOM, ItemConfig.TAG_GUPPY, ItemConfig.TAG_FLY,
@@ -38,6 +41,7 @@ end
 local function getCollected()
     if collected then return collected end
     collected = {}
+    directedItems = {}
     if not mod:HasData() then return collected end
 
     local ok, saved = pcall(json.decode, mod:LoadData())
@@ -48,6 +52,7 @@ local function getCollected()
                 collected[itemId] = true
             end
         end
+        if type(saved.directed) == "table" then directedItems = saved.directed end
     end
     return collected
 end
@@ -58,31 +63,8 @@ local function saveCollected()
         items[#items + 1] = itemId
     end
     table.sort(items)
-    mod:SaveData(json.encode({ seed = game:GetSeeds():GetStartSeed(), items = items }))
-end
-
-local function onPostUpdate()
-    local taken = getCollected()
-    local changed = false
-    for index = 0, game:GetNumPlayers() - 1 do
-        local player = Isaac.GetPlayer(index)
-        local data = player:GetData()
-        local queued = player.QueuedItem.Item
-        local queuedId = queued and queued:IsCollectible() and queued.ID > nullCollectible and queued.ID or nil
-        local pending = data.JustWinPendingPickup
-        data.JustWinPendingPickup = queuedId
-
-        -- The pickup animation queues the item before it is granted.
-        if pending and pending ~= queuedId and not taken[pending] and player:HasCollectible(pending, true) then
-            taken[pending] = true
-            game:GetItemPool():RemoveCollectible(pending)
-            changed = true
-        end
-    end
-    if changed then
-        rules = nil
-        saveCollected()
-    end
+    mod:SaveData(json.encode({ seed = game:GetSeeds():GetStartSeed(), items = items, directed = directedItems }))
+    directedDirty = false
 end
 
 local function buildRules()
@@ -183,6 +165,48 @@ local function needsReplacement(itemId, offered)
     return not isHighQuality(item) and not fixedSetPieces[itemId] and not getRules().setPieces[itemId]
 end
 
+local function directedKey(seed, itemId)
+    return game:GetRoom():GetSpawnSeed() .. ":" .. seed .. ":" .. itemId
+end
+
+local function getDirectedUse()
+    if directedUse and directedUse.roomSeed == game:GetRoom():GetSpawnSeed() then return directedUse end
+end
+
+local function isDirectedSpawn(use, itemId, position, seed)
+    if not use then return false end
+    for _, original in pairs(use.pedestals) do
+        local matchingItem = (use.copy and itemId == original.itemId) or (not use.copy and itemId < original.itemId)
+        if matchingItem and (original.seed == seed
+            or (position and original.position and position.X == original.position.X
+                and position.Y == original.position.Y)) then
+            return true
+        end
+    end
+    return false
+end
+
+local function preserveDirectedPickup(pickup)
+    getCollected()
+    local key = directedKey(pickup.InitSeed, pickup.SubType)
+    if directedItems[key] == true then return true end
+    local use = getDirectedUse()
+    if not use then return false end
+
+    local original = use.pedestals[GetPtrHash(pickup)]
+    local changed
+    if original then
+        changed = not use.copy and pickup.SubType < original.itemId
+    else
+        changed = isDirectedSpawn(use, pickup.SubType, pickup.Position, pickup.InitSeed)
+    end
+    if not changed then return false end
+
+    directedItems[key] = true
+    directedDirty = true
+    return true
+end
+
 local function remainingChoices(candidates, offered)
     local remaining = {}
     for _, itemId in ipairs(candidates) do
@@ -259,14 +283,22 @@ local function onGetCollectible(_, itemId, poolType, decrease, seed)
     return replacement
 end
 
-local function replaceFromRoomPool(itemId, seed)
+local function replaceFromRoomPool(itemId, seed, position)
     if itemId <= nullCollectible or isDeathCertificateRoom() then return end
     local offered = getRoomOffers()
     local replacement
     if needsReplacement(itemId) then
         local room = game:GetRoom()
-        local poolType = game:GetItemPool():GetPoolForRoom(room:GetType(), room:GetSpawnSeed())
-        replacement = findReplacement(poolType, seed, offered)
+        local key = directedKey(seed, itemId)
+        if directedItems[key] ~= true then
+            if isDirectedSpawn(getDirectedUse(), itemId, position, seed) then
+                directedItems[key] = true
+                directedDirty = true
+            else
+                local poolType = game:GetItemPool():GetPoolForRoom(room:GetType(), room:GetSpawnSeed())
+                replacement = findReplacement(poolType, seed, offered)
+            end
+        end
     end
     offered[replacement or itemId] = true
     return replacement
@@ -274,9 +306,9 @@ end
 
 -- Explicit drops bypass item-pool selection. Upgrade their subtype before
 -- the engine builds the pedestal and its native options.
-local function onEntitySpawn(_, entityType, variant, subtype, _position, _velocity, _spawner, seed)
+local function onEntitySpawn(_, entityType, variant, subtype, position, _velocity, _spawner, seed)
     if entityType ~= pickupType or variant ~= collectibleVariant then return end
-    local itemId = replaceFromRoomPool(subtype, seed)
+    local itemId = replaceFromRoomPool(subtype, seed, position)
     if itemId then return { entityType, variant, itemId, seed } end
 end
 
@@ -289,6 +321,8 @@ end
 local function onPickupUpdate(_, pickup)
     if pickup.SubType <= nullCollectible or isDeathCertificateRoom() then return end
     getRoomOffers()[pickup.SubType] = true
+    local replace = needsReplacement(pickup.SubType)
+    if replace and preserveDirectedPickup(pickup) then return end
 
     -- Morph recreates the pedestal's options. Pool rolls have already been
     -- filtered, so do not touch a native cycle or its Binge Eater food slot.
@@ -299,13 +333,13 @@ local function onPickupUpdate(_, pickup)
         return
     end
 
-    if not needsReplacement(pickup.SubType) then return end
+    if not replace then return end
     if pickup.GetCollectibleCycle then
         local cycle = pickup:GetCollectibleCycle()
         if #cycle > 1 or (#cycle == 1 and cycle[1] ~= pickup.SubType) then return end
     end
 
-    local itemId = replaceFromRoomPool(pickup.SubType, pickup.InitSeed)
+    local itemId = replaceFromRoomPool(pickup.SubType, pickup.InitSeed, pickup.Position)
     if not itemId then return end
 
     local price, shopItemId, autoUpdatePrice = pickup.Price, pickup.ShopItemId, pickup.AutoUpdatePrice
@@ -336,15 +370,68 @@ local function updateRoomPickups()
     end
 end
 
+local function finishDirectedUse()
+    if getDirectedUse() then
+        for _, entity in ipairs(Isaac.FindByType(pickupType, collectibleVariant)) do
+            if needsReplacement(entity.SubType) then preserveDirectedPickup(entity:ToPickup()) end
+        end
+    end
+    directedUse = nil
+end
+
+local function onPreUseItem(_, itemId)
+    finishDirectedUse()
+    local copy = itemId == collectibles.COLLECTIBLE_DIPLOPIA or itemId == collectibles.COLLECTIBLE_CROOKED_PENNY
+    if itemId ~= collectibles.COLLECTIBLE_SPINDOWN_DICE and not copy then return end
+
+    -- Only the fixed result is protected. Crown's added slots still use the pool callback.
+    local use = { roomSeed = game:GetRoom():GetSpawnSeed(), copy = copy, pedestals = {} }
+    for _, entity in ipairs(Isaac.FindByType(pickupType, collectibleVariant)) do
+        if entity.SubType > nullCollectible then
+            use.pedestals[GetPtrHash(entity)] = {
+                itemId = entity.SubType, seed = entity.InitSeed, position = entity.Position,
+            }
+        end
+    end
+    directedUse = use
+end
+
+local function onPostUpdate()
+    finishDirectedUse()
+    local taken = getCollected()
+    local changed = false
+    for index = 0, game:GetNumPlayers() - 1 do
+        local player = Isaac.GetPlayer(index)
+        local data = player:GetData()
+        local queued = player.QueuedItem.Item
+        local queuedId = queued and queued:IsCollectible() and queued.ID > nullCollectible and queued.ID or nil
+        local pending = data.JustWinPendingPickup
+        data.JustWinPendingPickup = queuedId
+
+        -- The pickup animation queues the item before it is granted.
+        if pending and pending ~= queuedId and not taken[pending] and player:HasCollectible(pending, true) then
+            taken[pending] = true
+            game:GetItemPool():RemoveCollectible(pending)
+            changed = true
+        end
+    end
+    if changed then rules = nil end
+    if changed or directedDirty then saveCollected() end
+end
+
 local function onGameExit(_, shouldSave)
     if shouldSave then onPostUpdate() end
     if collected then
-        if not shouldSave then collected = {} end
+        if not shouldSave then
+            collected = {}
+            directedItems = {}
+        end
         saveCollected()
     end
     collected = nil
     rules = nil
     offersByRoom = {}
+    directedUse = nil
 end
 
 local function onGameStarted(_, isContinued)
@@ -357,6 +444,7 @@ local function onGameStarted(_, isContinued)
         end
     else
         collected = {}
+        directedItems = {}
         saveCollected()
     end
     updateRoomPickups()
@@ -370,4 +458,5 @@ mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, onGameStarted)
 mod:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, onGameExit)
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, onPostUpdate)
 mod:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, onPickupUpdate, collectibleVariant)
+mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, onPreUseItem)
 mod:AddCallback(ModCallbacks.MC_USE_CARD, onSoulOfIsaac, Card.CARD_SOUL_ISAAC)
