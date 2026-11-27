@@ -9,7 +9,7 @@ local function equal(actual, expected, message)
 end
 
 local POST_GET, NEW_ROOM, GAME_STARTED, PICKUP_UPDATE, PRE_GAME_EXIT = 1, 2, 3, 4, 5
-local PRE_ENTITY_SPAWN, PRE_ROOM_ENTITY_SPAWN, USE_CARD = 6, 7, 8
+local PRE_ENTITY_SPAWN, PRE_ROOM_ENTITY_SPAWN, USE_CARD, POST_UPDATE = 6, 7, 8, 9
 local PICKUP, COLLECTIBLE = 5, 100
 local POOL_NULL, TREASURE, SHOP, ROOM_SHOP = -1, 0, 1, 2
 local LOW, Q1, Q2, Q3, Q4, HIDDEN, LOCKED = 1, 2, 3, 4, 5, 6, 7
@@ -33,8 +33,12 @@ local itemTags = {
     TAG_QUEST = 1 << 15, TAG_NO_GREED = 1 << 17, TAG_FOOD = 1 << 18,
 }
 
-local function loadMod(draws, setup)
-    local h = { callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP, players = {} }
+local function loadMod(draws, setup, options)
+    options = options or {}
+    local h = {
+        callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP, players = {},
+        removed = {}, absentFromPool = {}, startSeed = options.startSeed or 123, storage = options.storage or {},
+    }
     local config = {}
     local function addItem(quality, tags, hidden, achievement, available)
         local id = #config + 1
@@ -42,6 +46,7 @@ local function loadMod(draws, setup)
             ID = id, Quality = quality, Tags = tags or 0, Hidden = hidden or false,
             AchievementID = achievement or -1, Available = available ~= false,
             IsAvailable = function(item) return item.Available end,
+            IsCollectible = function() return true end,
             HasTags = function(item, mask) return item.Tags & mask ~= 0 end,
         }
         return id
@@ -72,6 +77,10 @@ local function loadMod(draws, setup)
             local selected = h.draws[#h.calls] or LOW
             return h.run(POST_GET, selected, poolType, decrease, seed) or selected
         end,
+        RemoveCollectible = function(_, id)
+            h.removed[#h.removed + 1] = id
+            return not h.absentFromPool[id]
+        end,
     }
     local room = {
         GetType = function() return ROOM_SHOP end,
@@ -84,6 +93,22 @@ local function loadMod(draws, setup)
         end,
     }
     local mod = {}
+    function mod:HasData() return h.storage.value ~= nil end
+    function mod:LoadData() return h.storage.value end
+    function mod:SaveData(value)
+        equal(type(value), "string", "run history is serialized")
+        h.storage.value = value
+    end
+    local function encodeHistory(data)
+        return data.seed .. ":" .. table.concat(data.items, ",")
+    end
+    local function decodeHistory(raw)
+        local seed, list = raw:match("^(%d+):([%d,]*)$")
+        assert(seed, "invalid mock save")
+        local items = {}
+        for id in list:gmatch("%d+") do items[#items + 1] = tonumber(id) end
+        return { seed = tonumber(seed), items = items }
+    end
     local function addCallback(_, callback, fn, filter)
         assert(h.callbacks[callback] == nil, "callback registered twice")
         h.callbacks[callback] = { fn = fn, filter = filter }
@@ -98,6 +123,7 @@ local function loadMod(draws, setup)
             MC_POST_GAME_STARTED = GAME_STARTED, MC_POST_PICKUP_UPDATE = PICKUP_UPDATE,
             MC_PRE_GAME_EXIT = PRE_GAME_EXIT, MC_PRE_ENTITY_SPAWN = PRE_ENTITY_SPAWN,
             MC_PRE_ROOM_ENTITY_SPAWN = PRE_ROOM_ENTITY_SPAWN, MC_USE_CARD = USE_CARD,
+            MC_POST_UPDATE = POST_UPDATE,
         },
         EntityType = { ENTITY_PICKUP = PICKUP },
         PickupVariant = { PICKUP_COLLECTIBLE = COLLECTIBLE },
@@ -106,6 +132,10 @@ local function loadMod(draws, setup)
         Card = { CARD_SOUL_ISAAC = SOUL_ISAAC },
         ItemPoolType = { POOL_TREASURE = TREASURE, POOL_SHOP = SHOP, POOL_NULL = POOL_NULL },
         ItemConfig = itemTags,
+        require = function(name)
+            assert(name == "json", "unexpected module " .. name)
+            return { encode = encodeHistory, decode = decodeHistory }
+        end,
         RegisterMod = function(name, api)
             equal(name, "假如我直接赢", "display name")
             equal(api, 1, "mod API")
@@ -116,6 +146,7 @@ local function loadMod(draws, setup)
                 GetItemPool = function() return pool end,
                 GetRoom = function() return room end,
                 GetNumPlayers = function() return #h.players end,
+                GetSeeds = function() return { GetStartSeed = function() return h.startSeed end } end,
             }
         end,
         Isaac = {
@@ -171,9 +202,16 @@ local function pedestal(id)
 end
 
 local function player(playerType, heldItem)
+    local data = {}
     return {
+        QueuedItem = {},
+        inventory = heldItem and { [heldItem] = true } or {},
+        effects = {},
+        GetData = function() return data end,
         GetPlayerType = function() return playerType end,
-        HasCollectible = function(_, item) return heldItem ~= nil and item == heldItem end,
+        HasCollectible = function(self, item, ignoreModifiers)
+            return self.inventory[item] == true or (not ignoreModifiers and self.effects[item] == true)
+        end,
     }
 end
 
@@ -415,5 +453,122 @@ end)
 local freshReplacement = freshTransformation.run(POST_GET, extraGuppyPiece, SHOP, true, 872)
 equal(freshReplacement ~= nil and freshTransformation.config[freshReplacement].Quality >= 3, true,
     "a supplemental locked high-quality item can complete a transformation's three pieces")
+
+local acquired = loadMod({ Q3, Q4 })
+local firstPlayer, secondPlayer = player(ISAAC), player(MAGDALENE)
+acquired.players = { firstPlayer, secondPlayer }
+acquired.run(GAME_STARTED, false)
+local existing = pedestal(Q3)
+acquired.run(PICKUP_UPDATE, existing)
+acquired.run(POST_UPDATE)
+equal(#acquired.removed, 0, "a touched but uncollected pedestal does not remove items from the pool")
+secondPlayer.QueuedItem.Item = { ID = Q3, IsCollectible = function() return false end }
+acquired.run(POST_UPDATE)
+equal(#acquired.removed, 0, "a trinket with the same ID does not remove a collectible")
+secondPlayer.QueuedItem.Item = acquired.config[Q3]
+acquired.run(POST_UPDATE)
+equal(#acquired.removed, 0, "a queued collectible stays in the pool during the pickup animation")
+secondPlayer.QueuedItem.Item = nil
+secondPlayer.inventory[Q3] = true
+acquired.run(POST_UPDATE)
+equal(acquired.removed[1], Q3, "a co-op player's completed pickup is removed from the native pool")
+firstPlayer.QueuedItem.Item = acquired.config[Q3]
+acquired.run(POST_UPDATE)
+acquired.run(POST_UPDATE)
+firstPlayer.QueuedItem.Item = nil
+firstPlayer.inventory[Q3] = true
+acquired.run(POST_UPDATE)
+equal(#acquired.removed, 1, "repeated animation ticks and co-op pickups share the same exclusion")
+equal(acquired.run(POST_GET, Q3, SHOP, true, 872), Q4,
+    "a forced natural draw of a picked item is replaced, skipping the same candidate during probes")
+equal(#acquired.calls, 2, "the native probe skipped the collected first candidate")
+acquired.calls, acquired.draws = {}, {}
+equal(acquired.run(POST_GET, LOW, SHOP, true, 872), Q4,
+    "available fallback candidates exclude the picked item")
+equal(acquired.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q3, nil, nil, nil, 10032), nil,
+    "fixed drops and active swaps are preserved when their item was previously collected")
+acquired.pickups = { existing }
+acquired.run(NEW_ROOM)
+equal(existing.SubType, Q3, "a previously spawned pedestal stays in place even if the same item was acquired")
+acquired.calls = {}
+equal(acquired.run(POST_GET, Q3, SHOP, true, 872), Q4,
+    "a room transition in the same run retains the exclusion")
+acquired.run(PRE_GAME_EXIT, true)
+
+local continuation = loadMod({ Q4 }, nil, { storage = acquired.storage, startSeed = acquired.startSeed })
+equal(continuation.run(POST_GET, Q3, SHOP, true, 872), Q4,
+    "continued room generation sees the saved history before the game-start callback")
+continuation.run(GAME_STARTED, true)
+equal(continuation.removed[1], Q3, "continuing reapplies exclusions to the native item pool")
+equal(#continuation.removed, 1, "continuing reapplies each saved ID exactly once")
+local unrelated = loadMod({}, nil, { storage = acquired.storage, startSeed = acquired.startSeed + 1 })
+equal(unrelated.run(POST_GET, Q3, SHOP, true, 872), nil,
+    "a different run seed ignores the prior pickup history")
+local malformedSave = loadMod({}, nil, { storage = { value = "corrupt" } })
+equal(malformedSave.run(POST_GET, Q3, SHOP, true, 872), nil,
+    "malformed pickup history does not corrupt the item pool")
+continuation.run(PRE_GAME_EXIT, false)
+continuation.run(GAME_STARTED, false)
+equal(continuation.run(POST_GET, Q3, SHOP, true, 872), nil,
+    "a new run can find the item again even when it reuses the same seed")
+
+local canceled = loadMod()
+local interrupted = player(ISAAC)
+canceled.players = { interrupted }
+interrupted.QueuedItem.Item = canceled.config[Q3]
+canceled.run(POST_UPDATE)
+interrupted.QueuedItem.Item = nil
+interrupted.effects[Q3] = true
+canceled.run(POST_UPDATE)
+equal(#canceled.removed, 0, "an aborted pickup does not remove the item even if a temporary effect grants it")
+equal(canceled.run(POST_GET, Q3, SHOP, true, 872), nil,
+    "an aborted pickup leaves the collectible eligible in later draws")
+
+local lastPickup = loadMod()
+local swapping = player(ISAAC, Q3)
+lastPickup.players = { swapping }
+swapping.QueuedItem.Item = lastPickup.config[Q3]
+lastPickup.run(POST_UPDATE)
+equal(#lastPickup.removed, 0, "a same-item active swap waits for the pickup animation to end")
+swapping.QueuedItem.Item = lastPickup.config[Q4]
+lastPickup.run(POST_UPDATE)
+equal(lastPickup.removed[1], Q3, "a completed active swap is recorded when another item enters the queue")
+equal(#lastPickup.removed, 1, "the new queued item is still pending")
+swapping.QueuedItem.Item = nil
+swapping.inventory[Q4] = true
+lastPickup.run(PRE_GAME_EXIT, true)
+equal(lastPickup.removed[2], Q4, "exiting to a continuable save records a completed pickup before saving")
+
+local function pick(harness, id)
+    harness.players[1] = harness.players[1] or player(ISAAC)
+    local collector = harness.players[1]
+    collector.QueuedItem.Item = harness.config[id]
+    harness.run(POST_UPDATE)
+    collector.QueuedItem.Item = nil
+    collector.inventory[id] = true
+    harness.run(POST_UPDATE)
+end
+
+local exhausted = loadMod()
+pick(exhausted, Q3)
+pick(exhausted, Q4)
+equal(exhausted.run(POST_GET, LOW, SHOP, true, 872), LOCKED,
+    "remaining locked high-quality items are eligible after ordinary choices are exhausted")
+exhausted.absentFromPool[LOCKED] = true
+pick(exhausted, LOCKED)
+equal(exhausted.removed[3], LOCKED, "an injected locked collectible is still sent to the native removal API")
+equal(exhausted.run(POST_GET, LOW, SHOP, true, 872), nil,
+    "an injected collectible cannot be selected again if native removal reports it absent")
+
+local restrictedHistory = loadMod({}, function(_, config)
+    config[LOCKED].Hidden = true
+    config[Q3].Available = false
+end)
+pick(restrictedHistory, Q4)
+equal(restrictedHistory.run(POST_GET, LOW, SHOP, true, 872), Q3,
+    "a restricted high-quality candidate can still be picked when the ordinary pool is exhausted")
+pick(restrictedHistory, Q3)
+equal(restrictedHistory.run(POST_GET, LOW, SHOP, true, 872), nil,
+    "restricted fallback also excludes acquired items when no eligible alternatives remain")
 
 print("Just Win: " .. checks .. " checks passed")

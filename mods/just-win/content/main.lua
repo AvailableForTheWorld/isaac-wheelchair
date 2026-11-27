@@ -1,4 +1,5 @@
 local mod = RegisterMod("假如我直接赢", 1)
+local json = require("json")
 local game = Game()
 local pickupType = EntityType.ENTITY_PICKUP
 local collectibleVariant = PickupVariant.PICKUP_COLLECTIBLE
@@ -7,6 +8,7 @@ local collectibles = CollectibleType
 local maxPoolRolls = 24
 local samplingPool = false
 local rules
+local collected
 
 local transformationTags = {
     ItemConfig.TAG_SYRINGE, ItemConfig.TAG_MOM, ItemConfig.TAG_GUPPY, ItemConfig.TAG_FLY,
@@ -32,8 +34,60 @@ local function isOrdinaryCollectible(item)
     return item and not item.Hidden and not item:HasTags(ItemConfig.TAG_QUEST)
 end
 
+local function getCollected()
+    if collected then return collected end
+    collected = {}
+    if not mod:HasData() then return collected end
+
+    local ok, saved = pcall(json.decode, mod:LoadData())
+    if ok and type(saved) == "table" and saved.seed == game:GetSeeds():GetStartSeed()
+        and type(saved.items) == "table" then
+        for _, itemId in ipairs(saved.items) do
+            if type(itemId) == "number" and itemId > nullCollectible and itemId % 1 == 0 then
+                collected[itemId] = true
+            end
+        end
+    end
+    return collected
+end
+
+local function saveCollected()
+    local items = {}
+    for itemId in pairs(collected) do
+        items[#items + 1] = itemId
+    end
+    table.sort(items)
+    mod:SaveData(json.encode({ seed = game:GetSeeds():GetStartSeed(), items = items }))
+end
+
+local function onPostUpdate()
+    local taken = getCollected()
+    local changed = false
+    for index = 0, game:GetNumPlayers() - 1 do
+        local player = Isaac.GetPlayer(index)
+        local data = player:GetData()
+        local queued = player.QueuedItem.Item
+        local queuedId = queued and queued:IsCollectible() and queued.ID > nullCollectible and queued.ID or nil
+        local pending = data.JustWinPendingPickup
+        data.JustWinPendingPickup = queuedId
+
+        -- The pickup animation queues the item before it is granted.
+        if pending and pending ~= queuedId and not taken[pending] and player:HasCollectible(pending, true) then
+            taken[pending] = true
+            game:GetItemPool():RemoveCollectible(pending)
+            changed = true
+        end
+    end
+    if changed then
+        rules = nil
+        saveCollected()
+    end
+end
+
 local function buildRules()
     local available, locked, restricted = {}, {}, {}
+    local availableCount, lockedCount = 0, 0
+    local taken = getCollected()
     local setMembers = {}
     for _, tag in ipairs(transformationTags) do
         setMembers[tag] = {}
@@ -47,8 +101,15 @@ local function buildRules()
             local highQuality = isHighQuality(item)
             local isLocked = not isAvailable and item.AchievementID >= 0
             if highQuality then
-                local pool = isAvailable and available or (isLocked and locked or restricted)
-                pool[#pool + 1] = itemId
+                if isAvailable then
+                    availableCount = availableCount + 1
+                elseif isLocked then
+                    lockedCount = lockedCount + 1
+                end
+                if not taken[itemId] then
+                    local pool = isAvailable and available or (isLocked and locked or restricted)
+                    pool[#pool + 1] = itemId
+                end
             end
 
             for _, tag in ipairs(transformationTags) do
@@ -65,8 +126,7 @@ local function buildRules()
         end
     end
 
-    local highQualityCount = #available + #locked
-    local supplementLocked = #available * 3 < highQualityCount * 2
+    local supplementLocked = availableCount * 3 < (availableCount + lockedCount) * 2
     local setPieces = {}
     for _, members in pairs(setMembers) do
         local qualities = {}
@@ -89,8 +149,8 @@ local function buildRules()
         setPieces = setPieces,
         locked = locked,
         supplementLocked = supplementLocked,
-        highQualityCount = highQualityCount,
-        fallback = #available > 0 and available or restricted,
+        highQualityCount = #available + #locked,
+        fallback = #available > 0 and available or (#locked > 0 and locked or restricted),
     }
 end
 
@@ -99,11 +159,12 @@ local function getRules()
     return rules
 end
 
-local function needsReplacement(itemId)
+local function needsReplacement(itemId, isPoolDraw)
     if itemId <= nullCollectible then return false end
     local item = Isaac.GetItemConfig():GetCollectible(itemId)
-    return item and not isHighQuality(item) and not item:HasTags(ItemConfig.TAG_QUEST)
-        and not fixedSetPieces[itemId] and not getRules().setPieces[itemId]
+    if not item or item:HasTags(ItemConfig.TAG_QUEST) then return false end
+    if isPoolDraw and getCollected()[itemId] then return true end
+    return not isHighQuality(item) and not fixedSetPieces[itemId] and not getRules().setPieces[itemId]
 end
 
 local function findReplacement(poolType, seed)
@@ -111,12 +172,13 @@ local function findReplacement(poolType, seed)
     rng:SetSeed(seed == 0 and 1 or seed, 35)
     local currentRules = getRules()
     local locked = currentRules.locked
-    if currentRules.supplementLocked and rng:RandomInt(currentRules.highQualityCount) < #locked then
+    if currentRules.supplementLocked and #locked > 0 and rng:RandomInt(currentRules.highQualityCount) < #locked then
         return locked[rng:RandomInt(#locked) + 1]
     end
 
     local config = Isaac.GetItemConfig()
     local pool = game:GetItemPool()
+    local taken = getCollected()
     if poolType == ItemPoolType.POOL_NULL then
         poolType = ItemPoolType.POOL_TREASURE
     end
@@ -128,7 +190,7 @@ local function findReplacement(poolType, seed)
         local itemId = pool:GetCollectible(poolType, false, rollSeed == 0 and 1 or rollSeed)
         samplingPool = false
         local item = itemId > nullCollectible and config:GetCollectible(itemId)
-        if isOrdinaryCollectible(item) and isHighQuality(item) and item:IsAvailable() then
+        if not taken[itemId] and isOrdinaryCollectible(item) and isHighQuality(item) and item:IsAvailable() then
             return itemId
         end
     end
@@ -140,7 +202,7 @@ local function findReplacement(poolType, seed)
 end
 
 local function onGetCollectible(_, itemId, poolType, _decrease, seed)
-    if not samplingPool and needsReplacement(itemId) then
+    if not samplingPool and needsReplacement(itemId, true) then
         return findReplacement(poolType, seed)
     end
 end
@@ -221,12 +283,28 @@ local function updateRoomPickups()
     end
 end
 
-local function resetRules()
+local function onGameExit(_, shouldSave)
+    if shouldSave then onPostUpdate() end
+    if collected then
+        if not shouldSave then collected = {} end
+        saveCollected()
+    end
+    collected = nil
     rules = nil
 end
 
-local function onGameStarted()
-    resetRules()
+local function onGameStarted(_, isContinued)
+    rules = nil
+    if isContinued then
+        collected = nil
+        local pool = game:GetItemPool()
+        for itemId in pairs(getCollected()) do
+            pool:RemoveCollectible(itemId)
+        end
+    else
+        collected = {}
+        saveCollected()
+    end
     updateRoomPickups()
 end
 
@@ -235,6 +313,7 @@ mod:AddCallback(ModCallbacks.MC_PRE_ENTITY_SPAWN, onEntitySpawn)
 mod:AddCallback(ModCallbacks.MC_PRE_ROOM_ENTITY_SPAWN, onRoomEntitySpawn)
 mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, updateRoomPickups)
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, onGameStarted)
-mod:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, resetRules)
+mod:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, onGameExit)
+mod:AddCallback(ModCallbacks.MC_POST_UPDATE, onPostUpdate)
 mod:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, onPickupUpdate, collectibleVariant)
 mod:AddCallback(ModCallbacks.MC_USE_CARD, onSoulOfIsaac, Card.CARD_SOUL_ISAAC)

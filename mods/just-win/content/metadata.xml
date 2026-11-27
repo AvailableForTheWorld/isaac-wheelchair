@@ -5,10 +5,14 @@
     <id>3846675376</id>
     <description>1.房间里的普通低品质道具会换成 3 或 4 级道具。
         2.保留任务道具和凑齐变身套装所需的低品质道具。
-        3.打标的时候也会为高品质候选较少的存档补充尚未解锁的 3、4 级道具。</description>
-    <version>1.1.5</version>
+        3.打标的时候也会为高品质候选较少的存档补充尚未解锁的 3、4 级道具。
+
+        1. Regular low-quality items in rooms are replaced with Quality 3 or Quality 4 items.
+        2. Quest items and lower-quality items needed to complete transformations are preserved.
+        3. On saves with few high-quality items available, Quality 3 and 4 items you haven't unlocked yet can also appear while you go for completion marks.</description>
+    <version>1.1.6</version>
     <visibility>Public</visibility>
-    <tag id="Lua"/>
-    <tag id="Items"/>
-    <tag id="Tweaks"/>
+    <tag id="Lua" />
+    <tag id="Items" />
+    <tag id="Tweaks" />
 </metadata>
