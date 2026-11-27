@@ -9,6 +9,7 @@ local maxPoolRolls = 24
 local samplingPool = false
 local rules
 local collected
+local offersByRoom = {}
 
 local transformationTags = {
     ItemConfig.TAG_SYRINGE, ItemConfig.TAG_MOM, ItemConfig.TAG_GUPPY, ItemConfig.TAG_FLY,
@@ -147,10 +148,10 @@ local function buildRules()
 
     return {
         setPieces = setPieces,
+        available = available,
         locked = locked,
+        restricted = restricted,
         supplementLocked = supplementLocked,
-        highQualityCount = #available + #locked,
-        fallback = #available > 0 and available or (#locked > 0 and locked or restricted),
     }
 end
 
@@ -159,73 +160,75 @@ local function getRules()
     return rules
 end
 
-local function needsReplacement(itemId, isPoolDraw)
+local function isDeathCertificateRoom()
+    local level = game:GetLevel()
+    local current = level:GetCurrentRoomDesc()
+    if not current.Data then return false end
+    if current.Data.Name == "Death Certificate" then return true end
+    local certificate = level:GetRoomByIdx(current.SafeGridIndex, 2)
+    return certificate.Data ~= nil and GetPtrHash(certificate) == GetPtrHash(current)
+end
+
+local function getRoomOffers()
+    local seed = game:GetRoom():GetSpawnSeed()
+    if not offersByRoom[seed] then offersByRoom[seed] = {} end
+    return offersByRoom[seed]
+end
+
+local function needsReplacement(itemId, offered)
     if itemId <= nullCollectible then return false end
     local item = Isaac.GetItemConfig():GetCollectible(itemId)
     if not item or item:HasTags(ItemConfig.TAG_QUEST) then return false end
-    if isPoolDraw and getCollected()[itemId] then return true end
+    if offered and (offered[itemId] or getCollected()[itemId]) then return true end
     return not isHighQuality(item) and not fixedSetPieces[itemId] and not getRules().setPieces[itemId]
 end
 
-local function findReplacement(poolType, seed)
+local function remainingChoices(candidates, offered)
+    local remaining = {}
+    for _, itemId in ipairs(candidates) do
+        if not offered[itemId] then remaining[#remaining + 1] = itemId end
+    end
+    return remaining
+end
+
+local function findReplacement(poolType, seed, offered)
     local rng = RNG()
     rng:SetSeed(seed == 0 and 1 or seed, 35)
     local currentRules = getRules()
-    local locked = currentRules.locked
-    if currentRules.supplementLocked and #locked > 0 and rng:RandomInt(currentRules.highQualityCount) < #locked then
+    local available = remainingChoices(currentRules.available, offered)
+    local locked = remainingChoices(currentRules.locked, offered)
+    if currentRules.supplementLocked and #locked > 0 and rng:RandomInt(#available + #locked) < #locked then
         return locked[rng:RandomInt(#locked) + 1]
     end
 
-    local config = Isaac.GetItemConfig()
-    local pool = game:GetItemPool()
-    local taken = getCollected()
-    if poolType == ItemPoolType.POOL_NULL then
-        poolType = ItemPoolType.POOL_TREASURE
-    end
-
-    for _ = 1, maxPoolRolls do
-        local rollSeed = rng:Next()
-        -- These sample draws invoke the same callback without depleting the pool.
-        samplingPool = true
-        local itemId = pool:GetCollectible(poolType, false, rollSeed == 0 and 1 or rollSeed)
-        samplingPool = false
-        local item = itemId > nullCollectible and config:GetCollectible(itemId)
-        if not taken[itemId] and isOrdinaryCollectible(item) and isHighQuality(item) and item:IsAvailable() then
-            return itemId
+    if #available > 0 then
+        local config = Isaac.GetItemConfig()
+        local pool = game:GetItemPool()
+        local taken = getCollected()
+        if poolType == ItemPoolType.POOL_NULL then
+            poolType = ItemPoolType.POOL_TREASURE
         end
+
+        for _ = 1, maxPoolRolls do
+            local rollSeed = rng:Next()
+            -- These probes must not reserve choices or deplete the pool.
+            samplingPool = true
+            local itemId = pool:GetCollectible(poolType, false, rollSeed == 0 and 1 or rollSeed)
+            samplingPool = false
+            local item = itemId > nullCollectible and config:GetCollectible(itemId)
+            if not taken[itemId] and not offered[itemId] and isOrdinaryCollectible(item)
+                and isHighQuality(item) and item:IsAvailable() then
+                return itemId
+            end
+        end
+        return available[rng:RandomInt(#available) + 1]
     end
 
-    local candidates = currentRules.fallback
-    if #candidates > 0 then
-        return candidates[rng:RandomInt(#candidates) + 1]
+    if #locked > 0 then return locked[rng:RandomInt(#locked) + 1] end
+    local restricted = remainingChoices(currentRules.restricted, offered)
+    if #restricted > 0 then
+        return restricted[rng:RandomInt(#restricted) + 1]
     end
-end
-
-local function onGetCollectible(_, itemId, poolType, _decrease, seed)
-    if not samplingPool and needsReplacement(itemId, true) then
-        return findReplacement(poolType, seed)
-    end
-end
-
-local function replaceFromRoomPool(itemId, seed)
-    if not needsReplacement(itemId) then return end
-    local room = game:GetRoom()
-    local poolType = game:GetItemPool():GetPoolForRoom(room:GetType(), room:GetSpawnSeed())
-    return findReplacement(poolType, seed)
-end
-
--- Explicit drops bypass item-pool selection. Upgrade their subtype before
--- the engine builds the pedestal and its native options.
-local function onEntitySpawn(_, entityType, variant, subtype, _position, _velocity, _spawner, seed)
-    if entityType ~= pickupType or variant ~= collectibleVariant then return end
-    local itemId = replaceFromRoomPool(subtype, seed)
-    if itemId then return { entityType, variant, itemId, seed } end
-end
-
-local function onRoomEntitySpawn(_, entityType, variant, subtype, _gridIndex, seed)
-    if entityType ~= pickupType or variant ~= collectibleVariant then return end
-    local itemId = replaceFromRoomPool(subtype, seed)
-    if itemId then return { entityType, variant, itemId } end
 end
 
 local function playersCanRotatePedestals()
@@ -242,7 +245,51 @@ local function playersCanRotatePedestals()
     return false
 end
 
+local function onGetCollectible(_, itemId, poolType, decrease, seed)
+    if samplingPool or itemId <= nullCollectible or isDeathCertificateRoom() then return end
+    local offered = getRoomOffers()
+    local replacement
+    if needsReplacement(itemId, offered) then
+        replacement = findReplacement(poolType, seed, offered)
+    end
+    -- Native rotation can request more than one choice before any is picked up.
+    if decrease or playersCanRotatePedestals() then
+        offered[replacement or itemId] = true
+    end
+    return replacement
+end
+
+local function replaceFromRoomPool(itemId, seed)
+    if itemId <= nullCollectible or isDeathCertificateRoom() then return end
+    local offered = getRoomOffers()
+    local replacement
+    if needsReplacement(itemId) then
+        local room = game:GetRoom()
+        local poolType = game:GetItemPool():GetPoolForRoom(room:GetType(), room:GetSpawnSeed())
+        replacement = findReplacement(poolType, seed, offered)
+    end
+    offered[replacement or itemId] = true
+    return replacement
+end
+
+-- Explicit drops bypass item-pool selection. Upgrade their subtype before
+-- the engine builds the pedestal and its native options.
+local function onEntitySpawn(_, entityType, variant, subtype, _position, _velocity, _spawner, seed)
+    if entityType ~= pickupType or variant ~= collectibleVariant then return end
+    local itemId = replaceFromRoomPool(subtype, seed)
+    if itemId then return { entityType, variant, itemId, seed } end
+end
+
+local function onRoomEntitySpawn(_, entityType, variant, subtype, _gridIndex, seed)
+    if entityType ~= pickupType or variant ~= collectibleVariant then return end
+    local itemId = replaceFromRoomPool(subtype, seed)
+    if itemId then return { entityType, variant, itemId } end
+end
+
 local function onPickupUpdate(_, pickup)
+    if pickup.SubType <= nullCollectible or isDeathCertificateRoom() then return end
+    getRoomOffers()[pickup.SubType] = true
+
     -- Morph recreates the pedestal's options. Pool rolls have already been
     -- filtered, so do not touch a native cycle or its Binge Eater food slot.
     local data = pickup:GetData()
@@ -278,7 +325,13 @@ local function onSoulOfIsaac()
 end
 
 local function updateRoomPickups()
-    for _, entity in ipairs(Isaac.FindByType(pickupType, collectibleVariant)) do
+    if isDeathCertificateRoom() then return end
+    local pedestals = Isaac.FindByType(pickupType, collectibleVariant)
+    local offered = getRoomOffers()
+    for _, entity in ipairs(pedestals) do
+        if entity.SubType > nullCollectible then offered[entity.SubType] = true end
+    end
+    for _, entity in ipairs(pedestals) do
         onPickupUpdate(mod, entity:ToPickup())
     end
 end
@@ -291,6 +344,7 @@ local function onGameExit(_, shouldSave)
     end
     collected = nil
     rules = nil
+    offersByRoom = {}
 end
 
 local function onGameStarted(_, isContinued)

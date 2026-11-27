@@ -38,6 +38,7 @@ local function loadMod(draws, setup, options)
     local h = {
         callbacks = {}, pickups = {}, draws = draws or {}, calls = {}, roomPool = SHOP, players = {},
         removed = {}, absentFromPool = {}, startSeed = options.startSeed or 123, storage = options.storage or {},
+        roomSeed = 456, roomDesc = { SafeGridIndex = 10, Data = { Name = "Shop" } },
     }
     local config = {}
     local function addItem(quality, tags, hidden, achievement, available)
@@ -66,7 +67,7 @@ local function loadMod(draws, setup, options)
     local pool = {
         GetPoolForRoom = function(_, roomType, seed)
             equal(roomType, ROOM_SHOP, "lookup uses current room type")
-            equal(seed, 456, "lookup uses current room seed")
+            equal(seed, h.roomSeed, "lookup uses current room seed")
             return h.roomPool
         end,
         GetCollectible = function(_, poolType, decrease, seed)
@@ -84,7 +85,14 @@ local function loadMod(draws, setup, options)
     }
     local room = {
         GetType = function() return ROOM_SHOP end,
-        GetSpawnSeed = function() return 456 end,
+        GetSpawnSeed = function() return h.roomSeed end,
+    }
+    local level = {
+        GetCurrentRoomDesc = function() return h.roomDesc end,
+        GetRoomByIdx = function(_, index, dimension)
+            assert(index == h.roomDesc.SafeGridIndex and dimension == 2, "unexpected room index or dimension")
+            return h.deathCertificateRoom or {}
+        end,
     }
     local itemConfig = {
         GetCollectible = function(_, id) return config[id] end,
@@ -145,6 +153,7 @@ local function loadMod(draws, setup, options)
             return {
                 GetItemPool = function() return pool end,
                 GetRoom = function() return room end,
+                GetLevel = function() return level end,
                 GetNumPlayers = function() return #h.players end,
                 GetSeeds = function() return { GetStartSeed = function() return h.startSeed end } end,
             }
@@ -158,6 +167,7 @@ local function loadMod(draws, setup, options)
                 return h.pickups
             end,
         },
+        GetPtrHash = function(object) return object end,
         RNG = function()
             local seed = 1
             local function nextValue()
@@ -251,9 +261,12 @@ for _, pickup in ipairs({ good, empty, unknown, quest, fixed }) do
     equal(pickup.morphs, 0, "valid, empty, unknown, quest and fixed-piece pedestals are unchanged")
 end
 local roomItem = pedestal(LOW)
-play.pickups = { starting, roomItem }
+play.pickups = { starting }
 play.run(NEW_ROOM)
 equal(starting.morphs, 1, "returning to a room does not reroll a valid replacement")
+play.roomSeed = 457
+play.pickups = { roomItem }
+play.run(NEW_ROOM)
 equal(roomItem.SubType, Q3, "room entry replaces a fixed low-quality pedestal")
 equal(play.calls[2].pool, SHOP, "fixed pedestals use the current room pool")
 roomItem.SubType = Q1
@@ -261,7 +274,7 @@ equal(play.callbacks[PICKUP_UPDATE].filter, COLLECTIBLE, "update is filtered to 
 play.run(PICKUP_UPDATE, roomItem)
 equal(roomItem.SubType, Q4, "pickup update replaces a later low-quality reroll")
 
-local spawn = loadMod({ Q3, Q4 })
+local spawn = loadMod({ Q3, Q3, Q4 })
 spawn.players = { player(ISAAC, BIRTHRIGHT) }
 local layout = spawn.run(PRE_ROOM_ENTITY_SPAWN, PICKUP, COLLECTIBLE, LOW, 50, 10031)
 equal(#layout, 3, "layout spawn override contains the expected fields")
@@ -274,6 +287,7 @@ equal(spawned[1], PICKUP, "dynamic spawn keeps entity type")
 equal(spawned[2], COLLECTIBLE, "dynamic spawn keeps variant")
 equal(spawned[3], Q4, "dynamic spawn upgrades a fixed low item before pickup creation")
 equal(spawned[4], 10032, "dynamic spawn preserves original seed")
+equal(#spawn.calls, 3, "a static replacement cannot be reselected for another pedestal in the room")
 for _, id in ipairs({ 0, Q3, QUEST, UNKNOWN }) do
     equal(spawn.run(PRE_ROOM_ENTITY_SPAWN, PICKUP, COLLECTIBLE, id, 50, 10031), nil,
         "layout leaves random placeholder and protected IDs native")
@@ -339,6 +353,79 @@ function extensionCycle:GetCollectibleCycle() return { Q3 } end
 extension.run(PICKUP_UPDATE, extensionCycle)
 equal(extensionCycle.SubType, Q2, "extension-reported alternate protects the native cycle")
 equal(extensionCycle.morphs, 0, "extension-reported cycle is left intact")
+
+local previews = loadMod({ Q3, Q4 })
+equal(previews.run(POST_GET, Q3, SHOP, false, 872), nil, "an ordinary preview can inspect an unused item")
+equal(previews.run(POST_GET, Q3, SHOP, true, 872), nil, "the preview does not reserve that item")
+equal(previews.run(POST_GET, Q3, TREASURE, false, 872), Q4,
+    "an ordinary preview respects reservations even when it looks in another pool")
+equal(previews.run(POST_GET, Q4, SHOP, true, 872), nil, "a replacement preview does not reserve its result")
+previews.roomSeed = 457
+equal(previews.run(POST_GET, Q3, SHOP, true, 872), nil, "an uncollected offer remains available in another room")
+previews.roomSeed = 456
+equal(previews.run(POST_GET, Q3, SHOP, true, 872), LOCKED,
+    "revisiting a room retains existing offers and opens unused locked candidates")
+equal(#previews.removed, 0, "reserving a room offer does not perform global removal")
+previews.run(PRE_GAME_EXIT, true)
+previews.run(GAME_STARTED, true)
+equal(previews.run(POST_GET, Q3, SHOP, true, 872), nil, "room reservations are transient across exit and Continue")
+
+local visible = loadMod({ Q3, Q4 })
+local lowPedestal = pedestal(LOW)
+local visiblePedestal = pedestal(Q3)
+visible.pickups = { lowPedestal, visiblePedestal }
+visible.run(NEW_ROOM)
+equal(lowPedestal.SubType, Q4, "the room sweep reserves existing IDs before replacing the first low pedestal")
+equal(visible.run(POST_GET, Q3, SHOP, true, 872), LOCKED,
+    "an existing visible pedestal reserves its ID before any item is picked up")
+equal(visiblePedestal.morphs, 0, "reserving an existing high-quality pedestal does not modify it")
+
+local crown = loadMod({ Q3 }, function(add)
+    add(4)
+    add(3)
+end)
+crown.players = { player(MAGDALENE, GLITCHED_CROWN) }
+local crownOptions = {}
+local crownSeen = {}
+for slot = 1, 5 do
+    crown.calls = {}
+    local id = crown.run(POST_GET, Q3, SHOP, false, 872) or Q3
+    equal(crownSeen[id], nil, "Glitched Crown uses five distinct options despite forced repeats and an identical seed")
+    equal(crown.config[id].Quality >= 3, true, "Glitched Crown options keep the quality filter")
+    crownSeen[id] = true
+    crownOptions[slot] = id
+end
+equal(crownSeen[LOCKED], true, "Glitched Crown uses a remaining locked option when necessary")
+local generatedCycle = pedestal(crownOptions[1])
+generatedCycle.nativeChoices = crownOptions
+for _, id in ipairs(crownOptions) do
+    generatedCycle.SubType = id
+    crown.run(PICKUP_UPDATE, generatedCycle)
+    equal(generatedCycle.SubType, id, "native rotation visits each generated option without replacement")
+end
+equal(generatedCycle.morphs, 0, "creating distinct options leaves the native cycle intact")
+
+local certificate = loadMod({ Q4 })
+certificate.roomDesc.Data.Name = "Death Certificate"
+equal(certificate.run(POST_GET, LOW, SHOP, true, 872), nil, "Death Certificate's native draw bypasses filtering")
+equal(certificate.run(PRE_ROOM_ENTITY_SPAWN, PICKUP, COLLECTIBLE, LOW, 50, 10031), nil,
+    "Death Certificate's room-layout exhibitions keep their original IDs")
+equal(certificate.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, LOW, nil, nil, nil, 10032), nil,
+    "Death Certificate's later pickups also bypass replacement")
+local exhibits = { pedestal(LOW), pedestal(Q3) }
+certificate.pickups = exhibits
+certificate.run(NEW_ROOM)
+certificate.run(PICKUP_UPDATE, exhibits[1])
+equal(exhibits[1].SubType, LOW, "Death Certificate's low-quality exhibit stays selectable")
+equal(exhibits[1].morphs, 0, "room and pickup checks leave the exhibit intact")
+equal(#certificate.calls, 0, "exhibits do not consume replacement attempts")
+certificate.roomDesc.Data.Name = "Another exhibition room"
+certificate.deathCertificateRoom = certificate.roomDesc
+equal(certificate.run(POST_GET, LOW, SHOP, true, 872), nil, "Death Certificate dimension works with another room name")
+certificate.roomDesc = { SafeGridIndex = 10, Data = { Name = "Shop" } }
+equal(certificate.run(POST_GET, Q3, SHOP, true, 872), nil, "exhibits do not reserve items for ordinary generation")
+equal(certificate.run(POST_GET, LOW, SHOP, true, 872), Q4,
+    "an ordinary room sharing the exhibition grid index still filters its draws")
 
 local noRoomPool = loadMod({ Q3 })
 noRoomPool.roomPool = POOL_NULL
@@ -408,6 +495,23 @@ equal(restrictedToLocked.run(POST_GET, LOW, SHOP, true, 872), LOCKED,
     "a low-unlock pool with no available high-quality picks uses a locked item")
 equal(restrictedToLocked.config[LOCKED].Available, false, "an injected item remains locked in the save")
 
+local lockedAlternates = loadMod({}, function(add, config)
+    config[Q3].Hidden = true
+    config[Q4].Hidden = true
+    add(3, 0, false, 2, false)
+    add(4, 0, false, 3, false)
+end)
+local lockedSeen = {}
+for _ = 1, 3 do
+    local id = assert(lockedAlternates.run(POST_GET, LOW, SHOP, true, 872), "missing locked alternative")
+    equal(lockedSeen[id], nil, "fresh-save locked supplementation skips an already offered candidate")
+    equal(lockedAlternates.config[id].Available, false, "a locked option stays locked in the profile")
+    lockedSeen[id] = true
+end
+equal(lockedAlternates.run(POST_GET, LOW, SHOP, true, 872), nil,
+    "an exhausted room does not draw again from already offered locked candidates")
+equal(#lockedAlternates.removed, 0, "uncollected locked offers do not modify the native item pool")
+
 local additionalLocked
 local fresh = loadMod({ Q4 }, function(add)
     additionalLocked = add(4, 0, false, 2, false)
@@ -420,7 +524,7 @@ local firstLockedSeed
 for step = 1, 20 do
     fresh.calls = {}
     local seed = step * 1000003
-    local id = fresh.run(POST_GET, LOW, SHOP, true, seed)
+    local id = fresh.run(POST_GET, LOW, SHOP, false, seed)
     assert(id == Q4 or id == LOCKED or id == additionalLocked, "unexpected low-unlock candidate")
     chosen[id] = true
     if id ~= Q4 then firstLockedSeed = firstLockedSeed or seed end
@@ -433,7 +537,7 @@ equal(established.run(POST_GET, LOW, SHOP, true, firstLockedSeed), Q4,
 fresh.config[additionalLocked].Available = true
 fresh.calls = {}
 fresh.run(PRE_GAME_EXIT, true)
-equal(fresh.run(POST_GET, LOW, SHOP, true, firstLockedSeed), Q4,
+equal(fresh.run(POST_GET, LOW, SHOP, false, firstLockedSeed), Q4,
     "pool rules rebuild for the next profile before game-start callback")
 fresh.config[additionalLocked].Available = false
 fresh.run(GAME_STARTED, true)
@@ -483,7 +587,8 @@ equal(acquired.run(POST_GET, Q3, SHOP, true, 872), Q4,
     "a forced natural draw of a picked item is replaced, skipping the same candidate during probes")
 equal(#acquired.calls, 2, "the native probe skipped the collected first candidate")
 acquired.calls, acquired.draws = {}, {}
-equal(acquired.run(POST_GET, LOW, SHOP, true, 872), Q4,
+acquired.roomSeed = 457
+equal(acquired.run(POST_GET, LOW, SHOP, false, 872), Q4,
     "available fallback candidates exclude the picked item")
 equal(acquired.run(PRE_ENTITY_SPAWN, PICKUP, COLLECTIBLE, Q3, nil, nil, nil, 10032), nil,
     "fixed drops and active swaps are preserved when their item was previously collected")
@@ -491,6 +596,7 @@ acquired.pickups = { existing }
 acquired.run(NEW_ROOM)
 equal(existing.SubType, Q3, "a previously spawned pedestal stays in place even if the same item was acquired")
 acquired.calls = {}
+acquired.roomSeed = 458
 equal(acquired.run(POST_GET, Q3, SHOP, true, 872), Q4,
     "a room transition in the same run retains the exclusion")
 acquired.run(PRE_GAME_EXIT, true)
