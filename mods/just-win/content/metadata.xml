@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <metadata>
-    <name>假如我直接赢</name>
+    <name>假如我直接赢 - just win 1</name>
     <directory>just-win</directory>
-    <description>房间里的普通低品质道具会换成 3 或 4 级道具。保留任务道具和凑齐变身套装所需的低品质道具，也会为高品质候选较少的存档补充尚未解锁的 3、4 级道具。</description>
-    <version>1.1.0</version>
+    <id>3846675376</id>
+    <description>1.房间里的普通低品质道具会换成 3 或 4 级道具。
+        2.保留任务道具和凑齐变身套装所需的低品质道具。
+        3.打标的时候也会为高品质候选较少的存档补充尚未解锁的 3、4 级道具。</description>
+    <version>1.1.4</version>
     <visibility>Public</visibility>
     <tag id="Lua"/>
+    <tag id="Items"/>
     <tag id="Tweaks"/>
 </metadata>
